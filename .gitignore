@@ -1,0 +1,21 @@
+# Dados brutos (arquivo grande, fica fora do Git)
+data/
+
+# Secrets (nunca subir credenciais)
+.streamlit/secrets.toml
+
+# Cache e ambiente Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+venv/
+
+# Arquivos temporários do sistema
+.DS_Store
+Thumbs.db
+
+# Cache do DuckDB
+*.duckdb
+*.duckdb.wal
