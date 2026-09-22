@@ -684,7 +684,10 @@ if df_res is not None:
     st.subheader("📊 Resultados")
 
     if log_res:
-        st.success(log_res) if not df_res.empty else st.warning(log_res)
+        if not df_res.empty:
+            st.success(log_res)
+        else:
+            st.warning(log_res)
 
     if not df_res.empty:
 

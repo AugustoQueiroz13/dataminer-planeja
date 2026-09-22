@@ -2,19 +2,7 @@
 # exporter.py
 # Geração de arquivos de saída do DataMiner Planeja+.
 #
-# Funções disponíveis:
-#   exportar_csv   - CSV com codificação UTF-8 BOM (abre corretamente no Excel)
-#   exportar_xlsx  - Planilha Excel com formatação institucional
-#   exportar_pdf   - Relatório PDF com cabeçalho Raízes/Planeja+ (A4 paisagem)
-#   exportar_docx  - Documento Word com tabela formatada
-#
-# Cada formato aceita dois modos:
-#   modo_simples=False  com cabeçalho e identidade visual Raízes/Planeja+
-#   modo_simples=True   apenas a tabela de dados, sem decoração institucional
-#
-# Colunas de proveniência:
-#   Colunas cujo nome começa com "_" são colunas de rastreabilidade de origem.
-#   No XLSX e no DOCX elas aparecem com fundo diferenciado (laranja claro).
+# Formatos: CSV, XLSX, PDF, DOCX
 # ==============================================================================
 
 import io
@@ -22,13 +10,11 @@ import pandas as pd
 from datetime import datetime
 from typing import Optional
 
-# Cores institucionais Raízes / Planeja+
 COR_VERDE_ESCURO = (31, 78, 47)
 COR_VERDE_CLARO  = (240, 247, 240)
 COR_BRANCO       = (255, 255, 255)
 COR_CINZA_TEXTO  = (100, 100, 100)
 
-# Hex para openpyxl
 HEX_VERDE_ESCURO = "1F4E2F"
 HEX_VERDE_CLARO  = "F0F7F0"
 HEX_LARANJA_PROV = "FFF3E0"
@@ -43,20 +29,12 @@ MAX_LINHAS_DOCX = 1000
 # ==============================================================================
 
 def _separar_colunas_proveniencia(df: pd.DataFrame) -> tuple:
-    """
-    Separa colunas de dados (nome não começa com '_') das de proveniência
-    (nome começa com '_'). Retorna (colunas_dados, colunas_proveniencia).
-    """
     colunas_dados = [c for c in df.columns if not str(c).startswith("_")]
     colunas_prov  = [c for c in df.columns if str(c).startswith("_")]
     return colunas_dados, colunas_prov
 
 
 def _preparar_df_para_export(df: pd.DataFrame, incluir_proveniencia: bool = True) -> pd.DataFrame:
-    """
-    Reordena o DataFrame: colunas de dados primeiro, proveniência no final.
-    Remove proveniência se incluir_proveniencia=False.
-    """
     colunas_dados, colunas_prov = _separar_colunas_proveniencia(df)
     if incluir_proveniencia:
         return df[colunas_dados + colunas_prov]
@@ -64,7 +42,6 @@ def _preparar_df_para_export(df: pd.DataFrame, incluir_proveniencia: bool = True
 
 
 def _bloco_metadados(filtros: dict) -> list:
-    """Gera lista de strings com data e filtros aplicados para cabeçalhos."""
     linhas = [f"Gerado em: {datetime.now().strftime('%d/%m/%Y às %H:%M')}"]
     for chave, valor in filtros.items():
         if valor and str(valor).strip():
@@ -72,15 +49,55 @@ def _bloco_metadados(filtros: dict) -> list:
     return linhas
 
 
+def _sanitizar_para_pdf(texto: str) -> str:
+    """
+    Substitui caracteres Unicode não suportados pela fonte Helvetica do fpdf2.
+    O fpdf2 com Helvetica suporta apenas Latin-1 (ISO 8859-1).
+    Comum em textos extraídos por OCR de documentos brasileiros.
+    """
+    mapa = {
+        '\u2014': '-',    # — em dash
+        '\u2013': '-',    # – en dash
+        '\u2012': '-',    # ‒ figure dash
+        '\u2011': '-',    # ‑ non-breaking hyphen
+        '\u201c': '"',    # " aspas esquerdas
+        '\u201d': '"',    # " aspas direitas
+        '\u201e': '"',    # „ aspas baixas
+        '\u2018': "'",    # ' aspas simples esquerda
+        '\u2019': "'",    # ' aspas simples direita
+        '\u2026': '...', # … reticências
+        '\u2022': '*',    # • bullet
+        '\u2023': '>',    # ‣ triangular bullet
+        '\u25cf': '*',    # ● filled circle
+        '\u25cb': 'o',    # ○ empty circle
+        '\u2192': '->',   # → seta direita
+        '\u2190': '<-',   # ← seta esquerda
+        '\u00b0': 'o',    # ° grau
+        '\u00b2': '2',    # ² superscript 2
+        '\u00b3': '3',    # ³ superscript 3
+        '\u00bd': '1/2',  # ½
+        '\u00bc': '1/4',  # ¼
+        '\u00be': '3/4',  # ¾
+        '\u2265': '>=',   # ≥
+        '\u2264': '<=',   # ≤
+        '\u2260': '!=',   # ≠
+        '\u00d7': 'x',    # × multiplicação
+        '\u00f7': '/',    # ÷ divisão
+        '\u00a0': ' ',    # non-breaking space
+        '\u00ad': '-',    # soft hyphen
+    }
+    for char_unicode, substituto in mapa.items():
+        texto = texto.replace(char_unicode, substituto)
+
+    # Remove qualquer outro caractere fora de Latin-1
+    return texto.encode('latin-1', errors='replace').decode('latin-1')
+
+
 # ==============================================================================
 # Exportação CSV
 # ==============================================================================
 
 def exportar_csv(df: pd.DataFrame, incluir_proveniencia: bool = True) -> bytes:
-    """
-    Exporta o DataFrame para CSV com UTF-8 BOM.
-    A codificação BOM garante que acentos abrem corretamente no Excel/Windows.
-    """
     df_export = _preparar_df_para_export(df, incluir_proveniencia)
     buffer = io.StringIO()
     df_export.to_csv(buffer, index=False, encoding="utf-8-sig")
@@ -98,18 +115,12 @@ def exportar_xlsx(
     incluir_proveniencia: bool = True,
     nome_aba: str = "DataMiner"
 ) -> bytes:
-    """
-    Gera um arquivo Excel (.xlsx) com formatação institucional.
-    Retorna os bytes do arquivo pronto para download.
-    """
     try:
         from openpyxl import Workbook
         from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
         from openpyxl.utils import get_column_letter
     except ImportError:
-        raise RuntimeError(
-            "Biblioteca 'openpyxl' não instalada. Execute: pip install openpyxl"
-        )
+        raise RuntimeError("Biblioteca 'openpyxl' não instalada.")
 
     filtros   = filtros_aplicados or {}
     df_export = _preparar_df_para_export(df, incluir_proveniencia)
@@ -118,7 +129,6 @@ def exportar_xlsx(
     ws = wb.active
     ws.title = nome_aba[:31]
 
-    # Estilos
     fonte_titulo        = Font(color=HEX_VERDE_ESCURO, bold=True, size=12)
     fonte_meta          = Font(size=9, color="606060", italic=True)
     fonte_header_tabela = Font(color="FFFFFF", bold=True, size=9)
@@ -142,66 +152,49 @@ def exportar_xlsx(
     linha_atual = 1
 
     if not modo_simples:
-        # Título institucional
-        ws.merge_cells(
-            start_row=1, start_column=1,
-            end_row=1, end_column=max(num_colunas, 4)
-        )
-        c = ws.cell(row=1, column=1,
-                    value="DataMiner Planeja+  |  Associação Raízes")
-        c.font      = fonte_titulo
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max(num_colunas, 4))
+        c = ws.cell(row=1, column=1, value="DataMiner Planeja+  |  Associação Raízes")
+        c.font = fonte_titulo
         c.alignment = Alignment(horizontal="center", vertical="center")
-        c.fill      = fill_cabecalho
+        c.fill = fill_cabecalho
         ws.row_dimensions[1].height = 22
         linha_atual = 2
 
-        # Subtítulo
-        ws.merge_cells(
-            start_row=2, start_column=1,
-            end_row=2, end_column=max(num_colunas, 4)
-        )
-        c2 = ws.cell(row=2, column=1,
-                     value="Extração e Cruzamento de Dados Orçamentários Municipais")
-        c2.font      = fonte_meta
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=max(num_colunas, 4))
+        c2 = ws.cell(row=2, column=1, value="Extração e Cruzamento de Dados Orçamentários Municipais")
+        c2.font = fonte_meta
         c2.alignment = Alignment(horizontal="center")
-        linha_atual  = 3
+        linha_atual = 3
 
-        # Metadados (filtros)
         for texto in _bloco_metadados(filtros):
-            ws.merge_cells(
-                start_row=linha_atual, start_column=1,
-                end_row=linha_atual, end_column=max(num_colunas, 4)
-            )
+            ws.merge_cells(start_row=linha_atual, start_column=1, end_row=linha_atual, end_column=max(num_colunas, 4))
             cm = ws.cell(row=linha_atual, column=1, value=texto)
-            cm.font      = fonte_meta
+            cm.font = fonte_meta
             cm.alignment = Alignment(horizontal="left", indent=1)
             linha_atual += 1
 
-        linha_atual += 1  # Linha em branco
+        linha_atual += 1
 
     linha_header = linha_atual
 
-    # Cabeçalho da tabela
     for col_idx, nome_col in enumerate(df_export.columns, start=1):
         c = ws.cell(row=linha_header, column=col_idx)
-        c.value     = str(nome_col).lstrip("_").replace("_", " ").title()
-        c.font      = fonte_header_tabela
+        c.value = str(nome_col).lstrip("_").replace("_", " ").title()
+        c.font = fonte_header_tabela
         c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        c.border    = borda
-        c.fill      = PatternFill("solid", fgColor="795548") \
-                      if str(nome_col).startswith("_") else fill_verde_escuro
+        c.border = borda
+        c.fill = PatternFill("solid", fgColor="795548") if str(nome_col).startswith("_") else fill_verde_escuro
 
     ws.row_dimensions[linha_header].height = 30
     linha_atual = linha_header + 1
 
-    # Linhas de dados
     for i, (_, linha_df) in enumerate(df_export.iterrows()):
         fill_linha = fill_verde_claro if i % 2 == 0 else fill_branco
 
         for col_idx, nome_col in enumerate(df_export.columns, start=1):
-            c     = ws.cell(row=linha_atual, column=col_idx)
+            c = ws.cell(row=linha_atual, column=col_idx)
             valor = linha_df[nome_col]
-            c.value  = "" if pd.isna(valor) else valor
+            c.value = "" if pd.isna(valor) else valor
             c.border = borda
             c.alignment = Alignment(vertical="center")
 
@@ -215,14 +208,9 @@ def exportar_xlsx(
         ws.row_dimensions[linha_atual].height = 16
         linha_atual += 1
 
-    # Linha de total
-    ws.cell(row=linha_atual, column=1,
-            value=f"Total de registros: {len(df_export):,}").font = fonte_meta
-
-    # Congelar cabeçalho
+    ws.cell(row=linha_atual, column=1, value=f"Total de registros: {len(df_export):,}").font = fonte_meta
     ws.freeze_panes = ws.cell(row=linha_header + 1, column=1)
 
-    # Largura automática das colunas
     for col_idx, nome_col in enumerate(df_export.columns, start=1):
         letra = get_column_letter(col_idx)
         valores_col = df_export[nome_col].astype(str)
@@ -249,16 +237,10 @@ def exportar_pdf(
     incluir_proveniencia: bool = True,
     max_linhas: int = MAX_LINHAS_PDF
 ) -> bytes:
-    """
-    Gera PDF em A4 paisagem com os dados filtrados.
-    Retorna os bytes do arquivo pronto para download.
-    """
     try:
         from fpdf import FPDF
     except ImportError:
-        raise RuntimeError(
-            "Biblioteca 'fpdf2' não instalada. Execute: pip install fpdf2"
-        )
+        raise RuntimeError("Biblioteca 'fpdf2' não instalada.")
 
     filtros   = filtros_aplicados or {}
     df_export = _preparar_df_para_export(df, incluir_proveniencia)
@@ -271,23 +253,18 @@ def exportar_pdf(
             if modo_simples:
                 self.set_font("Helvetica", "I", 8)
                 self.set_text_color(*COR_CINZA_TEXTO)
-                self.cell(0, 6, "DataMiner Planeja+ / Associação Raízes",
-                          ln=True, align="C")
+                self.cell(0, 6, "DataMiner Planeja+ / Associacao Raizes", ln=True, align="C")
                 self.ln(2)
                 return
 
             self.set_font("Helvetica", "B", 14)
             self.set_text_color(*COR_VERDE_ESCURO)
-            self.cell(0, 8, "Associação Raízes  |  Programa Planeja+",
-                      ln=True, align="C")
+            self.cell(0, 8, "Associacao Raizes  |  Programa Planeja+", ln=True, align="C")
 
             self.set_font("Helvetica", "", 10)
             self.set_text_color(60, 60, 60)
-            self.cell(
-                0, 5,
-                "DataMiner Planeja+ - Extração e Cruzamento de Dados Orçamentários",
-                ln=True, align="C"
-            )
+            self.cell(0, 5, "DataMiner Planeja+ - Extracao e Cruzamento de Dados Orcamentarios",
+                      ln=True, align="C")
 
             self.set_draw_color(*COR_VERDE_ESCURO)
             self.set_line_width(0.5)
@@ -298,7 +275,7 @@ def exportar_pdf(
             self.set_font("Helvetica", "I", 8)
             self.set_text_color(*COR_CINZA_TEXTO)
             for linha in _bloco_metadados(filtros):
-                self.cell(0, 4, linha, ln=True)
+                self.cell(0, 4, _sanitizar_para_pdf(linha), ln=True)
             self.ln(3)
 
         def footer(self):
@@ -307,11 +284,9 @@ def exportar_pdf(
             self.set_y(-10)
             self.set_font("Helvetica", "I", 7)
             self.set_text_color(160, 160, 160)
-            self.cell(
-                0, 5,
-                f"Página {self.page_no()}  |  DataMiner Planeja+ / Associação Raízes",
-                align="C"
-            )
+            self.cell(0, 5,
+                      f"Pagina {self.page_no()}  |  DataMiner Planeja+ / Associacao Raizes",
+                      align="C")
 
     pdf = PDFRelatorio(orientation="L", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -330,7 +305,7 @@ def exportar_pdf(
         else:
             pdf.set_fill_color(*COR_VERDE_ESCURO)
         pdf.set_text_color(*COR_BRANCO)
-        nome_exib = str(nome_col).lstrip("_").replace("_", " ")[:20]
+        nome_exib = _sanitizar_para_pdf(str(nome_col).lstrip("_").replace("_", " ")[:20])
         pdf.cell(largura_col, 6, nome_exib, border=1, fill=True, align="C")
     pdf.ln()
 
@@ -338,7 +313,9 @@ def exportar_pdf(
     pdf.set_font("Helvetica", "", 6)
     for i, (_, linha_df) in enumerate(df_export.iterrows()):
         for nome_col in df_export.columns:
-            valor = str(linha_df[nome_col]) if pd.notna(linha_df[nome_col]) else ""
+            valor_raw = str(linha_df[nome_col]) if pd.notna(linha_df[nome_col]) else ""
+            valor     = _sanitizar_para_pdf(valor_raw[:28])
+
             if str(nome_col).startswith("_"):
                 pdf.set_fill_color(255, 243, 224)
                 pdf.set_text_color(93, 64, 55)
@@ -348,7 +325,8 @@ def exportar_pdf(
             else:
                 pdf.set_fill_color(*COR_BRANCO)
                 pdf.set_text_color(30, 30, 30)
-            pdf.cell(largura_col, 5, valor[:28], border=1, fill=True, align="L")
+
+            pdf.cell(largura_col, 5, valor, border=1, fill=True, align="L")
         pdf.ln()
 
     pdf.set_font("Helvetica", "I", 7)
@@ -357,7 +335,7 @@ def exportar_pdf(
     nota = f"Total de registros exportados: {len(df_export):,}"
     if len(df) > max_linhas:
         nota += f"  (limitado a {max_linhas:,} linhas para este PDF)"
-    pdf.cell(0, 5, nota, ln=True)
+    pdf.cell(0, 5, _sanitizar_para_pdf(nota), ln=True)
 
     return bytes(pdf.output())
 
@@ -373,10 +351,6 @@ def exportar_docx(
     incluir_proveniencia: bool = True,
     max_linhas: int = MAX_LINHAS_DOCX
 ) -> bytes:
-    """
-    Gera um arquivo Word (.docx) com os dados filtrados.
-    Retorna os bytes do arquivo pronto para download.
-    """
     try:
         from docx import Document
         from docx.shared import Pt, Cm, RGBColor
@@ -385,9 +359,7 @@ def exportar_docx(
         from docx.oxml.ns import qn
         from docx.oxml import OxmlElement
     except ImportError:
-        raise RuntimeError(
-            "Biblioteca 'python-docx' não instalada. Execute: pip install python-docx"
-        )
+        raise RuntimeError("Biblioteca 'python-docx' não instalada.")
 
     filtros   = filtros_aplicados or {}
     df_export = _preparar_df_para_export(df, incluir_proveniencia)
@@ -397,25 +369,20 @@ def exportar_docx(
 
     doc = Document()
 
-    # Margens
     for secao in doc.sections:
         secao.left_margin   = Cm(1.5)
         secao.right_margin  = Cm(1.5)
         secao.top_margin    = Cm(2.0)
         secao.bottom_margin = Cm(2.0)
-        secao.orientation   = 1  # Paisagem
+        secao.orientation   = 1
 
     if not modo_simples:
-        p_titulo = doc.add_heading(
-            "DataMiner Planeja+  |  Associação Raízes", level=1
-        )
+        p_titulo = doc.add_heading("DataMiner Planeja+  |  Associação Raízes", level=1)
         p_titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
         for run in p_titulo.runs:
             run.font.color.rgb = RGBColor(*COR_VERDE_ESCURO)
 
-        p_sub = doc.add_paragraph(
-            "Extração e Cruzamento de Dados Orçamentários Municipais"
-        )
+        p_sub = doc.add_paragraph("Extração e Cruzamento de Dados Orçamentários Municipais")
         p_sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
         for run in p_sub.runs:
             run.font.size      = Pt(10)
@@ -432,16 +399,14 @@ def exportar_docx(
 
         doc.add_paragraph()
 
-    # Tabela
     num_colunas = len(df_export.columns)
     tabela = doc.add_table(rows=1, cols=num_colunas)
     tabela.alignment = WD_TABLE_ALIGNMENT.CENTER
     tabela.style     = "Table Grid"
 
-    # Cabeçalho
     linha_header = tabela.rows[0]
     for col_idx, nome_col in enumerate(df_export.columns):
-        celula = linha_header.cells[col_idx]
+        celula    = linha_header.cells[col_idx]
         nome_exib = str(nome_col).lstrip("_").replace("_", " ").title()
         celula.text = nome_exib
 
@@ -455,7 +420,6 @@ def exportar_docx(
         cor_hex = "795548" if str(nome_col).startswith("_") else HEX_VERDE_ESCURO
         _cor_celula_docx(celula, cor_hex)
 
-    # Linhas de dados
     for i, (_, linha_df) in enumerate(df_export.iterrows()):
         linha_tabela = tabela.add_row()
 
@@ -475,11 +439,10 @@ def exportar_docx(
             elif i % 2 == 0:
                 _cor_celula_docx(celula, HEX_VERDE_CLARO)
 
-    # Nota de rodapé da tabela
     doc.add_paragraph()
     nota = f"Total de registros: {len(df_export):,}"
     if len(df) > max_linhas:
-        nota += f"  (limitado a {max_linhas:,} linhas para este documento)"
+        nota += f"  (limitado a {max_linhas:,} linhas)"
     p_nota = doc.add_paragraph(nota)
     if p_nota.runs:
         p_nota.runs[0].font.size      = Pt(8)
@@ -504,18 +467,9 @@ def exportar_docx(
     return buffer.getvalue()
 
 
-# ==============================================================================
-# Utilitário interno: cor de fundo de célula no DOCX
-# ==============================================================================
-
 def _cor_celula_docx(celula, cor_hex: str):
-    """
-    Aplica cor de fundo a uma célula de tabela DOCX via XML.
-    O python-docx não expõe esse controle pela API pública.
-    """
     from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
-
     tc_pr = celula._tc.get_or_add_tcPr()
     shd   = OxmlElement("w:shd")
     shd.set(qn("w:val"),   "clear")
