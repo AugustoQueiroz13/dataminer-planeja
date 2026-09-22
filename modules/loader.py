@@ -71,9 +71,8 @@ def _sincronizar_pasta(folder_url: str):
                 output=DATA_DIR,
                 quiet=True,
                 use_cookies=False,
-                remaining_ok=True
             )
-
+           
         csvs_depois = set(_listar_csvs_locais())
         novos = csvs_depois - csvs_antes
 
