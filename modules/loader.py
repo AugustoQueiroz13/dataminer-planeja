@@ -1,72 +1,124 @@
 # ==============================================================================
 # loader.py
-# Responsável por encontrar o CSV local ou baixá-lo do Google Drive.
-# O arquivo fica em cache em disco para não baixar toda vez.
+# Sincronização de planilhas a partir de uma pasta pública do Google Drive.
 #
-# IMPORTANTE: esta função retorna None quando o arquivo não está disponível.
-# O app.py verifica esse retorno antes de tentar qualquer consulta.
-# Nunca chama st.stop() para não interromper o restante do app.
+# Comportamento:
+#   - Na inicialização do app, sincroniza automaticamente com a pasta do Drive
+#   - Arquivos já existentes localmente são ignorados (não baixados novamente)
+#   - Novos arquivos adicionados à pasta aparecem na próxima abertura do app
+#   - Se a sincronização falhar, usa os arquivos já disponíveis localmente
+#
+# Configuração necessária em .streamlit/secrets.toml:
+#   GDRIVE_FOLDER_URL = "https://drive.google.com/drive/folders/SEU_ID_AQUI"
 # ==============================================================================
 
 import os
 import streamlit as st
 
-DATA_DIR    = "data"
-CSV_FILENAME = "siconfi.csv"
-CSV_PATH    = os.path.join(DATA_DIR, CSV_FILENAME)
+DATA_DIR         = "data"
+GDRIVE_FOLDER_KEY = "GDRIVE_FOLDER_URL"
 
 
-def get_csv_path():
+def sincronizar_e_listar_csvs() -> list:
     """
-    Verifica se o CSV já existe localmente em data/siconfi.csv.
-    Se não encontrar, tenta baixar do Google Drive usando a URL
-    configurada em .streamlit/secrets.toml (chave: GDRIVE_CSV_URL).
+    Sincroniza os arquivos CSV de uma pasta pública do Google Drive
+    com a pasta local data/. Retorna a lista de caminhos locais
+    de todos os CSVs disponíveis.
 
-    Retorna o caminho local do arquivo CSV, ou None se não disponível.
-    Nunca interrompe o app — o chamador decide o que fazer com None.
+    Na primeira execução, faz o download dos arquivos.
+    Nas execuções seguintes, apenas verifica se há arquivos novos.
+    Se a sincronização falhar, usa os arquivos já presentes localmente.
     """
     os.makedirs(DATA_DIR, exist_ok=True)
 
-    # Arquivo já existe localmente
-    if os.path.exists(CSV_PATH):
-        tamanho_mb = os.path.getsize(CSV_PATH) / (1024 * 1024)
-        st.sidebar.caption(f"SICONFI em disco ({tamanho_mb:.0f} MB)")
-        return CSV_PATH
-
-    # Verifica se há URL configurada
+    # Lê a URL da pasta configurada em secrets.toml
     try:
-        gdrive_url = st.secrets.get("GDRIVE_CSV_URL", None)
+        folder_url = st.secrets.get(GDRIVE_FOLDER_KEY, None)
     except Exception:
-        gdrive_url = None
+        folder_url = None
 
-    if not gdrive_url:
+    if folder_url:
+        _sincronizar_pasta(folder_url)
+    else:
         st.sidebar.info(
-            "SICONFI não encontrado. Configure GDRIVE_CSV_URL "
-            "em .streamlit/secrets.toml para habilitá-lo.",
+            "Configure GDRIVE_FOLDER_URL em .streamlit/secrets.toml "
+            "para sincronizar planilhas automaticamente.",
             icon="ℹ️"
         )
-        return None
 
-    # Tenta baixar do Google Drive
+    return _listar_csvs_locais()
+
+
+def _sincronizar_pasta(folder_url: str):
+    """
+    Usa gdown para baixar arquivos da pasta pública do Google Drive.
+    Arquivos já existentes localmente são preservados e não baixados novamente.
+    """
     try:
         import gdown
     except ImportError:
-        st.sidebar.warning("Pacote 'gdown' não instalado. Execute: pip install gdown")
-        return None
-
-    with st.spinner("Baixando SICONFI do Google Drive (primeira vez pode demorar)..."):
-        try:
-            gdown.download(gdrive_url, CSV_PATH, quiet=False, fuzzy=True)
-        except Exception as erro:
-            st.sidebar.warning(f"Falha no download do SICONFI: {erro}")
-            return None
-
-    if not os.path.exists(CSV_PATH):
         st.sidebar.warning(
-            "Download do SICONFI falhou. Verifique se o link do Google Drive "
-            "está configurado como 'qualquer pessoa com o link pode ver'."
+            "Pacote 'gdown' não instalado. Execute: pip install gdown"
         )
-        return None
+        return
 
-    st.sidebar.success("SICONFI baixado e salvo localmente.")
-    return CSV_PATH
+    csvs_antes = set(_listar_csvs_locais())
+
+    try:
+        with st.spinner("Sincronizando planilhas com o Google Drive..."):
+            gdown.download_folder(
+                url=folder_url,
+                output=DATA_DIR,
+                quiet=True,
+                use_cookies=False,
+                remaining_ok=True
+            )
+
+        csvs_depois = set(_listar_csvs_locais())
+        novos = csvs_depois - csvs_antes
+
+        if novos:
+            nomes = [os.path.basename(p) for p in novos]
+            st.sidebar.success(
+                f"Sincronizado: {len(novos)} arquivo(s) novo(s) — "
+                f"{', '.join(nomes)}",
+                icon="✅"
+            )
+
+    except Exception as e:
+        if csvs_antes:
+            st.sidebar.warning(
+                f"Não foi possível sincronizar com o Drive. "
+                f"Usando {len(csvs_antes)} arquivo(s) local(is).",
+                icon="⚠️"
+            )
+        else:
+            st.sidebar.error(
+                f"Erro ao acessar a pasta do Google Drive: {e}",
+                icon="🚫"
+            )
+
+
+def _listar_csvs_locais() -> list:
+    """
+    Lista todos os arquivos CSV presentes na pasta data/ e subpastas.
+    Retorna lista de caminhos ordenada pelo nome do arquivo.
+    """
+    csvs = []
+    if not os.path.exists(DATA_DIR):
+        return csvs
+
+    for raiz, _, arquivos in os.walk(DATA_DIR):
+        for nome in arquivos:
+            if nome.lower().endswith(".csv"):
+                csvs.append(os.path.join(raiz, nome))
+
+    return sorted(csvs, key=lambda p: os.path.basename(p).lower())
+
+
+def nome_amigavel_csv(caminho: str) -> str:
+    """
+    Converte o nome do arquivo CSV em um rótulo legível para o seletor.
+    Exemplo: 'siconfi_receitas_2024.csv' -> 'siconfi_receitas_2024'
+    """
+    return os.path.splitext(os.path.basename(caminho))[0]
