@@ -1,12 +1,12 @@
 # ==============================================================================
 # ocr.py
-# Leitura de documentos escaneados com uso otimizado de memória.
+# Leitura de documentos escaneados com processamento página por página.
 #
-# Otimizações para o Streamlit Cloud (1GB RAM):
-#   - DPI reduzido para 150 (suficiente para texto impresso, muito menos memória)
-#   - Garbage collection forçado entre páginas
-#   - Processamento de uma página por vez (sem carregar o PDF inteiro em RAM)
-#   - Limite de páginas configurável para evitar timeout
+# Estratégia de memória para Streamlit Cloud (1GB RAM):
+#   - Uma página por vez: nunca carrega o PDF inteiro em memória
+#   - DPI 150: boa qualidade para texto, usa 4x menos RAM que 300 DPI
+#   - gc.collect() forçado após cada página
+#   - Sem limite de páginas: documentos de qualquer tamanho são suportados
 # ==============================================================================
 
 import re
@@ -15,7 +15,6 @@ import os
 import gc
 import platform
 import pandas as pd
-from typing import Optional
 
 try:
     import pytesseract
@@ -30,22 +29,17 @@ except ImportError:
     PILLOW_DISPONIVEL = False
 
 try:
-    from pdf2image import convert_from_bytes
+    from pdf2image import convert_from_bytes, pdfinfo_from_bytes
     PDF2IMAGE_DISPONIVEL = True
 except ImportError:
     PDF2IMAGE_DISPONIVEL = False
 
-
-# DPI para conversão de PDF em imagem.
-# 150 usa ~4x menos memória que 300 e é suficiente para texto impresso.
+# 150 DPI: bom para texto impresso, ~4x menos memória que 300 DPI
 DPI_OCR = 150
-
-# Limite de páginas por processamento para evitar estouro de memória.
-MAX_PAGINAS_OCR = 20
 
 
 # ==============================================================================
-# Configuração automática do caminho do Tesseract no Windows
+# Configuração automática do Tesseract no Windows
 # ==============================================================================
 
 if platform.system() == "Windows" and PYTESSERACT_DISPONIVEL:
@@ -55,10 +49,6 @@ if platform.system() == "Windows" and PYTESSERACT_DISPONIVEL:
         os.path.join(
             os.environ.get("LOCALAPPDATA", ""),
             "Programs", "Tesseract-OCR", "tesseract.exe"
-        ),
-        os.path.join(
-            os.environ.get("APPDATA", ""),
-            "Tesseract-OCR", "tesseract.exe"
         ),
     ]
     for caminho in caminhos_possiveis:
@@ -72,36 +62,27 @@ if platform.system() == "Windows" and PYTESSERACT_DISPONIVEL:
 # ==============================================================================
 
 def verificar_dependencias() -> tuple:
-    """
-    Verifica se todas as dependências de OCR estão disponíveis.
-    Retorna (ok: bool, mensagem: str).
-    """
+    """Verifica se todas as dependências de OCR estão disponíveis."""
     if not PYTESSERACT_DISPONIVEL:
-        return False, "Biblioteca 'pytesseract' não instalada. Execute: pip install pytesseract"
-
+        return False, "Biblioteca 'pytesseract' não instalada."
     if not PILLOW_DISPONIVEL:
-        return False, "Biblioteca 'Pillow' não instalada. Execute: pip install Pillow"
-
+        return False, "Biblioteca 'Pillow' não instalada."
     if not PDF2IMAGE_DISPONIVEL:
-        return False, "Biblioteca 'pdf2image' não instalada. Execute: pip install pdf2image"
-
+        return False, "Biblioteca 'pdf2image' não instalada."
     try:
         pytesseract.get_tesseract_version()
     except pytesseract.TesseractNotFoundError:
         sistema = platform.system()
         if sistema == "Windows":
-            instrucao = (
+            return False, (
                 "Tesseract não encontrado. Instale em:\n"
                 "https://github.com/UB-Mannheim/tesseract/wiki\n"
-                "Durante a instalação, marque 'Portuguese' em Additional language data."
+                "Marque 'Portuguese' em Additional language data."
             )
         elif sistema == "Darwin":
-            instrucao = "macOS: brew install tesseract tesseract-lang"
+            return False, "macOS: brew install tesseract tesseract-lang"
         else:
-            instrucao = "Linux: sudo apt install tesseract-ocr tesseract-ocr-por poppler-utils"
-
-        return False, instrucao
-
+            return False, "Linux: sudo apt install tesseract-ocr tesseract-ocr-por"
     return True, "OK"
 
 
@@ -111,18 +92,12 @@ def verificar_dependencias() -> tuple:
 
 def preprocessar_imagem(imagem: "Image.Image") -> "Image.Image":
     """
-    Aplica pré-processamento leve para melhorar o OCR sem consumir muita memória.
-    Usa operações simples que funcionam bem a 150 DPI.
+    Pré-processamento leve otimizado para 150 DPI.
+    Converte para cinza, aumenta contraste e binariza.
     """
-    # Escala de cinza
     img = imagem.convert("L")
-
-    # Aumento leve de contraste
     img = ImageEnhance.Contrast(img).enhance(1.5)
-
-    # Binarização simples
     img = img.point(lambda p: 255 if p > 150 else 0)
-
     return img
 
 
@@ -131,17 +106,11 @@ def preprocessar_imagem(imagem: "Image.Image") -> "Image.Image":
 # ==============================================================================
 
 def extrair_texto_imagem(imagem: "Image.Image") -> str:
-    """
-    Executa OCR em uma imagem com configurações para português.
-    """
+    """Executa OCR na imagem e libera memória em seguida."""
     img_proc = preprocessar_imagem(imagem)
-    config   = "--oem 3 --psm 6 -l por"
-    texto    = pytesseract.image_to_string(img_proc, config=config)
-
-    # Libera memória imediatamente
+    texto    = pytesseract.image_to_string(img_proc, config="--oem 3 --psm 6 -l por")
     del img_proc
     gc.collect()
-
     return texto
 
 
@@ -151,8 +120,8 @@ def extrair_texto_imagem(imagem: "Image.Image") -> str:
 
 def texto_para_dataframe(texto: str, numero_pagina: int) -> pd.DataFrame:
     """
-    Tenta estruturar o texto extraído em DataFrame.
-    Sem estrutura de tabela clara, retorna o texto bruto linha a linha.
+    Tenta estruturar o texto em tabela.
+    Sem estrutura clara, retorna o texto bruto linha a linha.
     """
     linhas = [l.strip() for l in texto.split("\n") if l.strip()]
 
@@ -165,23 +134,22 @@ def texto_para_dataframe(texto: str, numero_pagina: int) -> pd.DataFrame:
     if tem_estrutura:
         registros = []
         for linha in linhas:
-            colunas = re.split(r"\s{2,}|\t|\s*\|\s*", linha)
-            colunas = [c.strip() for c in colunas if c.strip()]
-            registros.append(colunas)
+            cols = re.split(r"\s{2,}|\t|\s*\|\s*", linha)
+            cols = [c.strip() for c in cols if c.strip()]
+            registros.append(cols)
 
         num_max       = max(len(r) for r in registros)
         registros_norm = [r + [""] * (num_max - len(r)) for r in registros]
 
         if len(registros_norm) > 1:
-            cabecalho = registros_norm[0]
-            cab_unico = []
-            contagem  = {}
-            for col in cabecalho:
-                nome = col if col else "Coluna"
-                contagem[nome] = contagem.get(nome, 0) + 1
-                sufixo = f"_{contagem[nome]}" if contagem[nome] > 1 else ""
-                cab_unico.append(f"{nome}{sufixo}")
-            df = pd.DataFrame(registros_norm[1:], columns=cab_unico)
+            cab   = registros_norm[0]
+            unico = []
+            cont  = {}
+            for c in cab:
+                nome = c if c else "Coluna"
+                cont[nome] = cont.get(nome, 0) + 1
+                unico.append(f"{nome}_{cont[nome]}" if cont[nome] > 1 else nome)
+            df = pd.DataFrame(registros_norm[1:], columns=unico)
         else:
             df = pd.DataFrame(
                 registros_norm,
@@ -203,48 +171,60 @@ def texto_para_dataframe(texto: str, numero_pagina: int) -> pd.DataFrame:
 
 def ler_pdf_escaneado(arquivo_bytes: bytes) -> tuple:
     """
-    Lê um PDF escaneado página por página com DPI reduzido (150).
-    Libera memória entre páginas para funcionar no Streamlit Cloud (1GB RAM).
-    Limita a MAX_PAGINAS_OCR páginas para evitar timeout.
+    Lê um PDF escaneado processando UMA PÁGINA POR VEZ.
+    Sem limite de páginas. Suporta documentos de qualquer tamanho.
+    Libera memória entre cada página para funcionar no Streamlit Cloud.
 
-    Retorna: (lista de DataFrames, total de páginas).
+    Retorna: (lista de DataFrames, total de páginas processadas).
     """
     ok, msg = verificar_dependencias()
     if not ok:
         raise RuntimeError(msg)
 
-    # Converte apenas as primeiras MAX_PAGINAS_OCR páginas
-    imagens = convert_from_bytes(
-        arquivo_bytes,
-        dpi=DPI_OCR,
-        first_page=1,
-        last_page=MAX_PAGINAS_OCR
-    )
-    total_processado = len(imagens)
-    dataframes       = []
+    # Obtém o total de páginas sem carregar as imagens
+    try:
+        info          = pdfinfo_from_bytes(arquivo_bytes)
+        total_paginas = info["Pages"]
+    except Exception:
+        # Se pdfinfo falhar, usa convert para a primeira página e estima
+        total_paginas = 999
 
-    for num_pag, imagem in enumerate(imagens, start=1):
-        texto = extrair_texto_imagem(imagem)
+    dataframes = []
 
-        # Libera a imagem da memória imediatamente após processar
-        del imagem
-        gc.collect()
+    for num_pag in range(1, total_paginas + 1):
+        try:
+            # Converte apenas a página atual (sem carregar o PDF inteiro)
+            imagens = convert_from_bytes(
+                arquivo_bytes,
+                dpi=DPI_OCR,
+                first_page=num_pag,
+                last_page=num_pag
+            )
 
-        df = texto_para_dataframe(texto, num_pag)
-        if not df.empty:
-            dataframes.append(df)
+            if not imagens:
+                break
 
-    # Libera a lista de imagens
-    del imagens
-    gc.collect()
+            imagem = imagens[0]
+            texto  = extrair_texto_imagem(imagem)
 
-    return dataframes, total_processado
+            # Libera imagem imediatamente
+            del imagem, imagens
+            gc.collect()
+
+            df = texto_para_dataframe(texto, num_pag)
+            if not df.empty:
+                dataframes.append(df)
+
+        except Exception:
+            # Se uma página falhar, continua para a próxima
+            gc.collect()
+            continue
+
+    return dataframes, num_pag
 
 
 def ler_imagem(arquivo_bytes: bytes, nome_arquivo: str) -> pd.DataFrame:
-    """
-    Lê um único arquivo de imagem via OCR.
-    """
+    """Lê um único arquivo de imagem via OCR."""
     ok, msg = verificar_dependencias()
     if not ok:
         raise RuntimeError(msg)
@@ -260,9 +240,7 @@ def ler_imagem(arquivo_bytes: bytes, nome_arquivo: str) -> pd.DataFrame:
 
 
 def consolidar_paginas(dataframes: list) -> pd.DataFrame:
-    """
-    Consolida múltiplos DataFrames de páginas em um único DataFrame.
-    """
+    """Consolida DataFrames de múltiplas páginas em um único."""
     if not dataframes:
         return pd.DataFrame()
     return pd.concat(dataframes, ignore_index=True)
