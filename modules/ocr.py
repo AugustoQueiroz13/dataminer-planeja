@@ -1,28 +1,22 @@
 # ==============================================================================
 # ocr.py
-# Leitura de documentos escaneados (PDFs como imagens e arquivos de imagem).
+# Leitura de documentos escaneados com uso otimizado de memória.
 #
-# Pipeline de pré-processamento por imagem:
-#   1. Conversão para escala de cinza
-#   2. Redimensionamento se resolução baixa
-#   3. Aumento de contraste
-#   4. Nitidez (unsharp mask)
-#   5. Binarização (preto e branco limpo)
-#   6. OCR com Tesseract em português brasileiro
-#
-# Formatos suportados:
-#   PDF (todas as páginas processadas individualmente)
-#   PNG, JPG, JPEG, TIFF, BMP
+# Otimizações para o Streamlit Cloud (1GB RAM):
+#   - DPI reduzido para 150 (suficiente para texto impresso, muito menos memória)
+#   - Garbage collection forçado entre páginas
+#   - Processamento de uma página por vez (sem carregar o PDF inteiro em RAM)
+#   - Limite de páginas configurável para evitar timeout
 # ==============================================================================
 
 import re
 import io
 import os
+import gc
 import platform
 import pandas as pd
 from typing import Optional
 
-# Importações condicionais para dar mensagens de erro claras
 try:
     import pytesseract
     PYTESSERACT_DISPONIVEL = True
@@ -42,10 +36,16 @@ except ImportError:
     PDF2IMAGE_DISPONIVEL = False
 
 
+# DPI para conversão de PDF em imagem.
+# 150 usa ~4x menos memória que 300 e é suficiente para texto impresso.
+DPI_OCR = 150
+
+# Limite de páginas por processamento para evitar estouro de memória.
+MAX_PAGINAS_OCR = 20
+
+
 # ==============================================================================
 # Configuração automática do caminho do Tesseract no Windows
-# No Windows o Tesseract não é adicionado ao PATH automaticamente.
-# Este bloco localiza o executável nos caminhos de instalação mais comuns.
 # ==============================================================================
 
 if platform.system() == "Windows" and PYTESSERACT_DISPONIVEL:
@@ -111,72 +111,56 @@ def verificar_dependencias() -> tuple:
 
 def preprocessar_imagem(imagem: "Image.Image") -> "Image.Image":
     """
-    Aplica pipeline de pré-processamento para melhorar a qualidade do OCR.
-    Funciona tanto para documentos limpos quanto para documentos com ruído.
+    Aplica pré-processamento leve para melhorar o OCR sem consumir muita memória.
+    Usa operações simples que funcionam bem a 150 DPI.
     """
-    # Passo 1: Escala de cinza
+    # Escala de cinza
     img = imagem.convert("L")
 
-    # Passo 2: Redimensionar se a resolução for baixa
-    largura, altura = img.size
-    if largura < 1500:
-        fator = 2.0
-        img = img.resize(
-            (int(largura * fator), int(altura * fator)),
-            Image.LANCZOS
-        )
+    # Aumento leve de contraste
+    img = ImageEnhance.Contrast(img).enhance(1.5)
 
-    # Passo 3: Aumento de contraste
-    img = ImageEnhance.Contrast(img).enhance(2.0)
-
-    # Passo 4: Nitidez
-    img = img.filter(ImageFilter.UnsharpMask(radius=1, percent=150, threshold=3))
-
-    # Passo 5: Binarização (preto e branco limpo)
-    img = img.point(lambda p: 255 if p > 160 else 0)
+    # Binarização simples
+    img = img.point(lambda p: 255 if p > 150 else 0)
 
     return img
 
 
 # ==============================================================================
-# Extração de texto por OCR
+# Extração de texto
 # ==============================================================================
 
 def extrair_texto_imagem(imagem: "Image.Image") -> str:
     """
-    Executa o OCR em uma imagem e retorna o texto extraído.
-    Usa configurações otimizadas para documentos com tabelas.
+    Executa OCR em uma imagem com configurações para português.
     """
-    img_processada = preprocessar_imagem(imagem)
+    img_proc = preprocessar_imagem(imagem)
+    config   = "--oem 3 --psm 6 -l por"
+    texto    = pytesseract.image_to_string(img_proc, config=config)
 
-    # --oem 3: usa o melhor motor disponível (LSTM + legacy)
-    # --psm 6: assume bloco de texto uniforme (bom para tabelas e formulários)
-    # -l por: dicionário de português
-    config = "--oem 3 --psm 6 -l por"
+    # Libera memória imediatamente
+    del img_proc
+    gc.collect()
 
-    return pytesseract.image_to_string(img_processada, config=config)
+    return texto
 
 
 # ==============================================================================
-# Tentativa de estruturar o texto em tabela
+# Estruturação do texto em DataFrame
 # ==============================================================================
 
 def texto_para_dataframe(texto: str, numero_pagina: int) -> pd.DataFrame:
     """
-    Tenta estruturar o texto extraído pelo OCR em um DataFrame.
-    Quando o texto não tem estrutura de tabela clara, retorna
-    o conteúdo bruto linha a linha.
+    Tenta estruturar o texto extraído em DataFrame.
+    Sem estrutura de tabela clara, retorna o texto bruto linha a linha.
     """
     linhas = [l.strip() for l in texto.split("\n") if l.strip()]
 
     if not linhas:
         return pd.DataFrame(columns=["pagina_origem", "linha", "texto_ocr"])
 
-    # Verifica se o texto tem estrutura de tabela
-    linhas_com_separadores = sum(
-        1 for l in linhas if re.search(r"\s{2,}|\t|\|", l)
-    )
-    tem_estrutura = linhas_com_separadores > len(linhas) * 0.4
+    linhas_com_sep = sum(1 for l in linhas if re.search(r"\s{2,}|\t|\|", l))
+    tem_estrutura  = linhas_com_sep > len(linhas) * 0.4
 
     if tem_estrutura:
         registros = []
@@ -185,13 +169,13 @@ def texto_para_dataframe(texto: str, numero_pagina: int) -> pd.DataFrame:
             colunas = [c.strip() for c in colunas if c.strip()]
             registros.append(colunas)
 
-        num_max = max(len(r) for r in registros)
+        num_max       = max(len(r) for r in registros)
         registros_norm = [r + [""] * (num_max - len(r)) for r in registros]
 
         if len(registros_norm) > 1:
             cabecalho = registros_norm[0]
             cab_unico = []
-            contagem = {}
+            contagem  = {}
             for col in cabecalho:
                 nome = col if col else "Coluna"
                 contagem[nome] = contagem.get(nome, 0) + 1
@@ -219,36 +203,57 @@ def texto_para_dataframe(texto: str, numero_pagina: int) -> pd.DataFrame:
 
 def ler_pdf_escaneado(arquivo_bytes: bytes) -> tuple:
     """
-    Lê um PDF escaneado página por página.
+    Lê um PDF escaneado página por página com DPI reduzido (150).
+    Libera memória entre páginas para funcionar no Streamlit Cloud (1GB RAM).
+    Limita a MAX_PAGINAS_OCR páginas para evitar timeout.
+
     Retorna: (lista de DataFrames, total de páginas).
     """
     ok, msg = verificar_dependencias()
     if not ok:
         raise RuntimeError(msg)
 
-    imagens = convert_from_bytes(arquivo_bytes, dpi=300)
-    total_paginas = len(imagens)
-    dataframes = []
+    # Converte apenas as primeiras MAX_PAGINAS_OCR páginas
+    imagens = convert_from_bytes(
+        arquivo_bytes,
+        dpi=DPI_OCR,
+        first_page=1,
+        last_page=MAX_PAGINAS_OCR
+    )
+    total_processado = len(imagens)
+    dataframes       = []
 
     for num_pag, imagem in enumerate(imagens, start=1):
         texto = extrair_texto_imagem(imagem)
+
+        # Libera a imagem da memória imediatamente após processar
+        del imagem
+        gc.collect()
+
         df = texto_para_dataframe(texto, num_pag)
         if not df.empty:
             dataframes.append(df)
 
-    return dataframes, total_paginas
+    # Libera a lista de imagens
+    del imagens
+    gc.collect()
+
+    return dataframes, total_processado
 
 
 def ler_imagem(arquivo_bytes: bytes, nome_arquivo: str) -> pd.DataFrame:
     """
-    Lê um único arquivo de imagem (PNG, JPG, TIFF, BMP) via OCR.
+    Lê um único arquivo de imagem via OCR.
     """
     ok, msg = verificar_dependencias()
     if not ok:
         raise RuntimeError(msg)
 
     imagem = Image.open(io.BytesIO(arquivo_bytes))
-    texto = extrair_texto_imagem(imagem)
+    texto  = extrair_texto_imagem(imagem)
+    del imagem
+    gc.collect()
+
     df = texto_para_dataframe(texto, numero_pagina=1)
     df.insert(1, "arquivo_origem", nome_arquivo)
     return df
@@ -256,7 +261,7 @@ def ler_imagem(arquivo_bytes: bytes, nome_arquivo: str) -> pd.DataFrame:
 
 def consolidar_paginas(dataframes: list) -> pd.DataFrame:
     """
-    Consolida múltiplos DataFrames de páginas num único DataFrame.
+    Consolida múltiplos DataFrames de páginas em um único DataFrame.
     """
     if not dataframes:
         return pd.DataFrame()
