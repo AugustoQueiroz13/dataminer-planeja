@@ -2,10 +2,10 @@
 # reader.py
 # Leitura de dados de CSV (DuckDB), XLSX (pandas) e PDF (pdfplumber).
 #
-# Suporte a encoding:
-#   Arquivos CSV do SICONFI frequentemente usam Latin-1 ou Windows-1252.
-#   As funções DuckDB tentam UTF-8 primeiro e, se falhar, tentam Latin-1
-#   e CP1252. Como último recurso, usam ignore_errors=true para não travar.
+# Correções incluídas:
+#   - utf-8-sig como primeiro encoding (remove BOM e corrige detecção de header)
+#   - Município usa busca LIKE em vez de IN exato
+#     (necessário pois SICONFI usa "Prefeitura Municipal de X" e não apenas "X")
 # ==============================================================================
 
 import duckdb
@@ -14,40 +14,9 @@ import pdfplumber
 import streamlit as st
 from typing import Optional
 
-
-# Sequência de encodings a tentar para CSVs do governo brasileiro
-ENCODINGS_CSV = ["utf-8", "latin-1", "cp1252", "utf-16"]
-
-
-# ==============================================================================
-# Funções auxiliares de encoding
-# ==============================================================================
-
-def _opcoes_csv(csv_path: str, encoding: str, extra: str = "") -> str:
-    """
-    Monta a string de opções para read_csv_auto do DuckDB.
-    Usa aspas simples escapadas para o caminho do arquivo.
-    """
-    caminho = csv_path.replace("'", "''")
-    return (
-        f"read_csv_auto('{caminho}', header=true, "
-        f"encoding='{encoding}', ignore_errors=true{extra})"
-    )
-
-
-def _executar_com_fallback(con: duckdb.DuckDBPyConnection, sql_template: str) -> pd.DataFrame:
-    """
-    Tenta executar a query com cada encoding da lista.
-    Retorna o primeiro resultado bem-sucedido.
-    Se todos falharem, retorna DataFrame vazio.
-    """
-    for enc in ENCODINGS_CSV:
-        try:
-            query = sql_template.format(encoding=enc)
-            return con.execute(query).fetchdf()
-        except Exception:
-            continue
-    return pd.DataFrame()
+# utf-8-sig PRIMEIRO: remove o BOM de UTF-8, garantindo que a linha de
+# cabeçalho seja lida corretamente pelo DuckDB.
+ENCODINGS_CSV = ["utf-8-sig", "utf-8", "latin-1", "cp1252", "utf-16"]
 
 
 # ==============================================================================
@@ -59,7 +28,7 @@ def get_csv_columns(csv_path: str) -> list:
     """
     Lê apenas o cabeçalho do CSV sem carregar os dados.
     Tenta múltiplos encodings automaticamente.
-    Retorna lista com os nomes de todas as colunas.
+    utf-8-sig é tentado primeiro para remover BOM de arquivos do governo.
     """
     con = duckdb.connect()
     caminho = csv_path.replace("'", "''")
@@ -72,8 +41,9 @@ def get_csv_columns(csv_path: str) -> list:
                 f"ignore_errors=true, sample_size=500"
                 f")"
             ).fetchdf()
+            colunas = resultado["column_name"].tolist()
             con.close()
-            return resultado["column_name"].tolist()
+            return colunas
         except Exception:
             continue
 
@@ -93,7 +63,7 @@ def get_valores_unicos(csv_path: str, nome_coluna: str) -> list:
     """
     con = duckdb.connect()
     caminho = csv_path.replace("'", "''")
-    col = nome_coluna.replace("'", "''")
+    col     = nome_coluna.replace("'", "''")
 
     for enc in ENCODINGS_CSV:
         try:
@@ -128,21 +98,30 @@ def query_csv(
 ) -> pd.DataFrame:
     """
     Consulta o CSV com DuckDB usando filtros dinâmicos.
-    Tenta múltiplos encodings automaticamente.
-    Retorna apenas as linhas que satisfazem os filtros,
-    sem carregar o arquivo inteiro na memória.
+
+    Busca de município usa LIKE em vez de IN exato, porque arquivos do SICONFI
+    registram os municípios como "Prefeitura Municipal de X" e não apenas "X".
+    A busca LIKE %guapimirim% encontra "Prefeitura Municipal de Guapimirim".
     """
-    con = duckdb.connect()
+    con     = duckdb.connect()
     caminho = csv_path.replace("'", "''")
 
-    # Monta filtro de municípios
-    lista_mun = ", ".join([f"'{m.replace(chr(39), chr(39)*2)}'" for m in municipios])
-    clausulas = [f'"{col_municipio}" IN ({lista_mun})']
+    # Filtro de município com LIKE (busca parcial, case-insensitive)
+    # Cobre tanto "Guapimirim" quanto "Prefeitura Municipal de Guapimirim"
+    like_parts = " OR ".join([
+        f'LOWER("{col_municipio}") LIKE \'%{m.lower().replace(chr(39), chr(39)*2)}%\''
+        for m in municipios
+    ])
+    clausulas = [f"({like_parts})"]
 
+    # Filtro por tipo de receita (busca parcial no campo de conta/código)
     if termo_receita and termo_receita.strip():
         termo = termo_receita.replace("'", "''")
-        clausulas.append(f'LOWER("{col_receita}") LIKE \'%{termo.lower()}%\'')
+        clausulas.append(
+            f'(LOWER("{col_receita}") LIKE \'%{termo.lower()}%\')'
+        )
 
+    # Filtro por ano
     if col_ano and anos:
         lista_anos = ", ".join([f"'{str(a)}'" for a in anos])
         clausulas.append(f'CAST("{col_ano}" AS VARCHAR) IN ({lista_anos})')

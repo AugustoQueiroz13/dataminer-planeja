@@ -1,6 +1,6 @@
 # ==============================================================================
 # app.py
-# DataMiner Planeja+ — Interface Principal (v3.0)
+# DataMiner Planeja+ — Interface Principal (v4.0)
 # Associação Raízes | Programa Planeja+
 # ==============================================================================
 
@@ -68,7 +68,13 @@ st.markdown("""
         color: #5d4037;
         margin-top: 6px;
     }
-    header[data-testid="stHeader"] { background-color: #0d1e14; }
+    .caixa-copiar {
+        background: #1e3a2a;
+        border: 1px solid #2d6b41;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -91,7 +97,7 @@ for chave, padrao in {
 
 
 # ==============================================================================
-# Sincronização com o Google Drive (executada uma vez por sessão)
+# Sincronização com o Google Drive (uma vez por sessão)
 # ==============================================================================
 
 if not st.session_state.csvs_disponiveis:
@@ -148,26 +154,42 @@ def acha_indice(colunas: list, termos: list) -> int:
     return 0
 
 
+def df_para_texto_copiavel(df: pd.DataFrame) -> str:
+    """
+    Converte o DataFrame para texto separado por tabulações (TSV).
+    Ao colar no Excel ou Google Sheets, cada célula vai para a coluna certa.
+    Remove colunas de proveniência (prefixo '_') para deixar mais limpo.
+    """
+    colunas_dados = [c for c in df.columns if not str(c).startswith("_")]
+    df_limpo = df[colunas_dados]
+    return df_limpo.to_csv(sep="\t", index=False, encoding="utf-8")
+
+
 # ==============================================================================
-# Cabeçalho com Logos
+# Cabeçalho: Logos empilhadas + Título centralizado
 # ==============================================================================
 
-col_logo_pl, col_titulo, col_logo_pgp = st.columns([1.8, 5, 1.2])
+col_logos, col_titulo = st.columns([1.3, 5])
 
-with col_logo_pl:
+with col_logos:
     if os.path.exists("assets/logo_planeja.png"):
         st.image("assets/logo_planeja.png", use_container_width=True)
-
-with col_titulo:
-    st.title("⛏️ DataMiner Planeja+")
-    st.caption(
-        "Extração e Cruzamento de Dados Orçamentários Municipais  "
-        "|  Associação Raízes  |  Programa Planeja+"
-    )
-
-with col_logo_pgp:
+    st.write("")
     if os.path.exists("assets/logo_pgp.png"):
         st.image("assets/logo_pgp.png", use_container_width=True)
+
+with col_titulo:
+    st.markdown("""
+    <div style="padding-top: 12px;">
+        <h1 style="margin-bottom: 6px; font-size: 2.2rem;">⛏️ DataMiner Planeja+</h1>
+        <p style="text-align: center; color: #aaa; margin: 0; font-size: 1rem; line-height: 1.6;">
+            Extração e Cruzamento de Dados Orçamentários Municipais
+        </p>
+        <p style="text-align: center; color: #888; margin: 0; font-size: 0.9rem; line-height: 1.6;">
+            Associação Raízes | Programa Planeja+
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
 st.divider()
 
@@ -178,15 +200,15 @@ st.divider()
 
 with st.sidebar:
 
-    st.header("📤 Carregar Documento")
+    st.header("📤 Enviar Documento")
+    st.caption("Carregue aqui os arquivos que deseja pesquisar: LOA, PPA, balanços, etc.")
 
     arquivo = st.file_uploader(
         "Selecione o arquivo",
         type=["csv", "xlsx", "xls", "pdf", "png", "jpg", "jpeg", "tiff", "bmp"],
         help=(
-            "Formatos aceitos: planilhas (CSV, Excel), documentos PDF "
-            "com texto selecionável ou escaneados (requer OCR), "
-            "e imagens (PNG, JPG, TIFF, BMP)."
+            "Formatos aceitos: CSV, Excel (.xlsx/.xls), PDF com texto "
+            "selecionável ou escaneado (requer OCR), e imagens."
         )
     )
 
@@ -199,73 +221,51 @@ with st.sidebar:
             st.success(f"✓ {arquivo.name[:32]} já está na biblioteca.")
         else:
             municipio_upload = st.selectbox(
-                "Município",
+                "A qual município pertence este arquivo?",
                 options=TODOS_MUNICIPIOS,
-                help=(
-                    "Selecione o município ao qual este documento pertence. "
-                    "A lista contém os 26 municípios do Planeja+ distribuídos "
-                    "pelas 7 regionais (ES, RJ e SP)."
-                )
+                help="Selecione o município do Planeja+ ao qual este documento se refere."
             )
             tipo_doc_upload = st.selectbox(
                 "Tipo de documento",
                 options=TIPOS_DOCUMENTO,
                 help=(
-                    "LOA: Lei Orçamentária Anual, detalha receitas e despesas "
-                    "previstas para um exercício. "
-                    "PPA: Plano Plurianual, abrange 4 anos e define programas e metas. "
-                    "LDO: Lei de Diretrizes Orçamentárias, estabelece prioridades. "
-                    "SICONFI: planilha do Sistema de Informações Contábeis do Tesouro Nacional. "
-                    "Balanço Orçamentário: demonstrativo de execução orçamentária. "
-                    "Outro: qualquer outro documento financeiro municipal."
+                    "LOA: Lei Orçamentária Anual (receitas e despesas do exercício). "
+                    "PPA: Plano Plurianual (4 anos). LDO: Lei de Diretrizes Orçamentárias. "
+                    "SICONFI: planilha do Tesouro Nacional. Outro: demais documentos financeiros."
                 )
             )
             exercicio_upload = st.text_input(
-                "Exercício (ano)",
+                "Ano do documento",
                 value=str(datetime.now().year),
                 max_chars=9,
-                help=(
-                    "Informe o ano de referência do documento. "
-                    "Para LOA e LDO, use o ano do exercício: 2024. "
-                    "Para PPA, use o período completo: 2022-2025."
-                )
+                help="Informe o ano de referência. Para PPA, use o período: 2022-2025."
             )
 
             forcar_ocr = False
             if extensao in ["pdf", "png", "jpg", "jpeg", "tiff", "bmp"]:
                 forcar_ocr = st.checkbox(
-                    "Usar OCR (documento escaneado ou imagem)",
+                    "Usar OCR (documento escaneado ou foto)",
                     value=(extensao != "pdf"),
                     help=(
-                        "Marque quando o PDF foi digitalizado a partir de papel "
-                        "(escaneado) ou quando o arquivo é uma fotografia ou imagem. "
-                        "Deixe desmarcado para PDFs exportados digitalmente, "
-                        "que possuem texto selecionável e não precisam de OCR."
+                        "Marque para PDFs digitalizados em scanner ou fotografados. "
+                        "PDFs gerados em computador não precisam de OCR."
                     )
                 )
 
-            if st.button(
-                "⚙️ Processar e Adicionar à Biblioteca",
-                type="primary",
-                use_container_width=True
-            ):
+            if st.button("✅ Processar e adicionar", type="primary", use_container_width=True):
                 with st.spinner(f"Processando {arquivo.name}..."):
                     try:
                         df_lido, origem_ocr, total_pag = processar_arquivo_upload(
-                            arquivo=arquivo,
-                            forcar_ocr=forcar_ocr
+                            arquivo=arquivo, forcar_ocr=forcar_ocr
                         )
 
                         if df_lido.empty and not forcar_ocr and extensao == "pdf":
                             st.warning(
-                                "O PDF não contém tabelas com texto selecionável. "
+                                "PDF sem tabelas detectáveis. "
                                 "Marque 'Usar OCR' e tente novamente."
                             )
                         elif df_lido.empty:
-                            st.error(
-                                "Não foi possível extrair dados deste arquivo. "
-                                "Verifique se o formato é compatível."
-                            )
+                            st.error("Não foi possível extrair dados deste arquivo.")
                         else:
                             conector   = obter_conector(tipo_doc_upload)
                             mapeamento = conector.detectar_colunas(df_lido.columns.tolist())
@@ -288,66 +288,48 @@ with st.sidebar:
                             adicionar_documento(registro)
                             st.session_state.processados_keys.add(arquivo_key)
 
-                            msg_ocr = f" ({total_pag} páginas via OCR)" if origem_ocr else ""
-                            st.success(
-                                f"✓ Adicionado. "
-                                f"{len(df_lido):,} registros extraídos{msg_ocr}."
-                            )
-                            if mapeamento.get("codigo"):
-                                st.caption(
-                                    f"Coluna de código detectada: `{mapeamento['codigo']}`"
-                                )
+                            msg_ocr = f" via OCR ({total_pag} páginas)" if origem_ocr else ""
+                            st.success(f"✓ {len(df_lido):,} registros extraídos{msg_ocr}.")
                             st.rerun()
 
                     except RuntimeError as e:
                         st.error(str(e))
                     except Exception as e:
-                        st.error(f"Erro inesperado: {e}")
+                        st.error(f"Erro: {e}")
 
     st.divider()
 
-    # ---- Biblioteca de Documentos -------------------------------------------
-
+    # ---- Biblioteca ----
     total          = total_documentos()
     municipios_bib = listar_municipios_carregados()
 
-    st.header(f"📚 Biblioteca  ({total} doc{'s' if total != 1 else ''})")
+    st.header(f"📚 Documentos carregados ({total})")
 
     if total == 0:
-        st.caption(
-            "Nenhum documento carregado nesta sessão. "
-            "Faça upload pelo painel acima."
-        )
+        st.caption("Nenhum documento ainda. Envie um arquivo acima para começar.")
     else:
         col_m1, col_m2 = st.columns(2)
         col_m1.metric("Documentos", total)
         col_m2.metric("Municípios", len(municipios_bib))
 
-        st.caption("Clique em ▶ para ver detalhes ou remover.")
-
         for doc in listar_documentos():
-            icone_ocr = " 🔍" if doc["origem_ocr"] else ""
-            with st.expander(f"📄 {doc['nome_arquivo'][:26]}{icone_ocr}"):
-                st.markdown(f"**Município:** {doc['municipio']}")
+            icone = "🔍" if doc["origem_ocr"] else "📄"
+            with st.expander(f"{icone} {doc['nome_arquivo'][:26]}"):
                 st.markdown(
-                    f"**Tipo:** {doc['tipo_documento']}  "
-                    f"|  **Exercício:** {doc['exercicio']}"
+                    f"**{doc['municipio']}** · {doc['tipo_documento']} {doc['exercicio']}"
                 )
-                st.markdown(f"**Registros:** {doc['linhas']:,}")
+                st.caption(f"{doc['linhas']:,} registros · {doc['formato']}")
                 if doc.get("col_codigo"):
                     st.caption(f"Coluna de código: `{doc['col_codigo']}`")
-                if doc["origem_ocr"] and doc.get("paginas_totais"):
-                    st.caption(f"OCR — {doc['paginas_totais']} página(s)")
                 if st.button("🗑️ Remover", key=f"rm_{doc['id']}", use_container_width=True):
                     remover_documento(doc["id"])
                     st.rerun()
 
         st.divider()
-        if st.button("🗑️ Limpar biblioteca completa", use_container_width=True):
+        if st.button("🗑️ Remover todos", use_container_width=True):
             limpar_biblioteca()
             st.session_state.processados_keys = set()
             st.session_state.df_resultado     = None
-            st.session_state.log_resultado    = None
             st.rerun()
 
 
@@ -355,68 +337,61 @@ with st.sidebar:
 # Área Principal: Abas
 # ==============================================================================
 
-tab_cruzamento, tab_siconfi = st.tabs([
-    "🔗 Cruzamento de Dados",
+tab_documentos, tab_siconfi = st.tabs([
+    "🔍 Busca de Dados em Documentos enviados",
     "📂 Fonte de Dados SICONFI"
 ])
 
 
 # ==============================================================================
-# Aba: Cruzamento de Dados
+# Aba: Busca de Dados em Documentos enviados
 # ==============================================================================
 
-with tab_cruzamento:
+with tab_documentos:
 
     if total_documentos() == 0:
         st.info(
-            "Nenhum documento na biblioteca ainda. "
-            "Use o painel lateral para carregar arquivos de LOA, PPA ou outros documentos.",
-            icon="ℹ️"
+            "Ainda não há documentos carregados. "
+            "Use o painel à esquerda para enviar um arquivo de LOA, PPA ou outro documento.",
+            icon="👈"
         )
     else:
-        st.subheader("🔗 Cruzamento por Código Orçamentário")
+        st.subheader("🔍 Buscar por código orçamentário")
         st.caption(
-            "Informe um código de receita ou despesa para buscá-lo em todos os "
-            "documentos carregados. O resultado consolida registros de múltiplas "
-            "fontes com informações de origem em cada linha."
+            "Digite um código de receita ou despesa para encontrá-lo nos documentos carregados. "
+            "O resultado mostra todos os registros encontrados, com a fonte de cada um."
         )
 
         c1, c2, c3 = st.columns([3, 2, 2])
 
         with c1:
             codigo_busca = st.text_input(
-                "Código orçamentário",
-                placeholder="Ex: 1.7.2.8  |  04.122  |  03.001.0001",
+                "Código para buscar",
+                placeholder="Ex: 1.7   |   3390.39   |   04.122",
                 help=(
-                    "Informe o código de receita ou despesa que deseja localizar "
-                    "nos documentos carregados. Três formatos são reconhecidos:\n\n"
-                    "Receita: 1.7.2.8.00.00 (royalties de petróleo)\n\n"
-                    "Despesa funcional: 04.122 (administração geral)\n\n"
-                    "Despesa programática: 03.001.0001.2001\n\n"
-                    "Natureza da despesa: 3.3.90.39.00\n\n"
-                    "No modo Parcial, basta informar os primeiros níveis "
-                    "(ex: 1.7 encontra todos os subcódigos de royalties)."
+                    "Digite o código que deseja encontrar. Exemplos:\n\n"
+                    "1.7 → royalties de petróleo e gás (receita)\n\n"
+                    "1.7.2.8.00.00 → código exato de royalties\n\n"
+                    "3390.39 → outros serviços de terceiros (despesa)\n\n"
+                    "04.122 → administração geral (funcional)\n\n"
+                    "No modo Parcial, basta digitar os primeiros números. "
+                    "1.7 encontra 1.7.2, 1.7.2.8.00.00 e todos os subcódigos."
                 )
             )
 
         with c2:
-            opcoes_mun = ["Todos os municípios carregados"] + listar_municipios_carregados()
+            opcoes_mun = ["Todos os municípios"] + listar_municipios_carregados()
             mun_filtro = st.selectbox(
                 "Município",
                 options=opcoes_mun,
-                help=(
-                    "Restringe a busca a um único município ou abrange todos "
-                    "os documentos da biblioteca. Se vários municípios tiverem "
-                    "documentos carregados, o resultado consolidado mostrará "
-                    "a origem de cada linha."
-                )
+                help="Filtre por município ou busque em todos os documentos carregados."
             )
 
         with c3:
             modo_labels = {
-                "parcial": "Parcial (hierarquia)",
+                "parcial": "Parcial (recomendado)",
                 "exato":   "Exato",
-                "fuzzy":   "Fuzzy (aproximado)"
+                "fuzzy":   "Aproximado"
             }
             modo_busca = st.radio(
                 "Modo de busca",
@@ -425,22 +400,27 @@ with tab_cruzamento:
                 horizontal=True,
                 help=(
                     "Parcial: encontra o código e todos os seus subcódigos. "
-                    "Buscar 1.7 retorna 1.7.2, 1.7.2.8.00.00 etc. "
-                    "Recomendado para exploração.\n\n"
-                    "Exato: apenas correspondência total com o código digitado.\n\n"
-                    "Fuzzy: tolerante a pequenas variações de digitação e erros "
-                    "de OCR. Útil para documentos escaneados com baixa qualidade."
+                    "Exato: apenas o código digitado. "
+                    "Aproximado: tolerante a erros de digitação."
                 )
             )
 
-        mun_param = None if mun_filtro == "Todos os municípios carregados" else mun_filtro
+        mun_param = None if mun_filtro == "Todos os municípios" else mun_filtro
 
-        if st.button(
-            "🔎 Cruzar código",
-            type="primary",
-            disabled=not (codigo_busca or "").strip()
-        ):
-            with st.spinner("Cruzando código entre os documentos da biblioteca..."):
+        col_btn, col_dica = st.columns([2, 5])
+        with col_btn:
+            buscar = st.button(
+                "🔎 Buscar agora",
+                type="primary",
+                use_container_width=True,
+                disabled=not (codigo_busca or "").strip()
+            )
+        with col_dica:
+            if not (codigo_busca or "").strip():
+                st.caption("👆 Digite um código acima para habilitar a busca.")
+
+        if buscar:
+            with st.spinner("Buscando nos documentos..."):
                 df_cruzado = cruzar_codigo(
                     codigo_busca=codigo_busca.strip(),
                     municipio=mun_param,
@@ -467,14 +447,13 @@ with tab_siconfi:
 
     st.subheader("📂 Fonte de Dados SICONFI")
     st.caption(
-        "Consulta planilhas do SICONFI sincronizadas automaticamente com o Google Drive. "
-        "Utiliza DuckDB para filtrar diretamente em disco, sem carregar o arquivo inteiro na memória."
+        "Consulta as planilhas do SICONFI sincronizadas do Google Drive. "
+        "Use DuckDB para filtrar sem carregar o arquivo inteiro na memória."
     )
 
     csvs = st.session_state.csvs_disponiveis
 
-    # Botão para re-sincronizar manualmente
-    if st.button("🔄 Sincronizar com o Drive agora", use_container_width=False):
+    if st.button("🔄 Atualizar planilhas do Drive", use_container_width=False):
         with st.spinner("Sincronizando..."):
             st.session_state.csvs_disponiveis = sincronizar_e_listar_csvs()
             csvs = st.session_state.csvs_disponiveis
@@ -482,48 +461,34 @@ with tab_siconfi:
 
     if not csvs:
         st.info(
-            "Nenhuma planilha SICONFI disponível ainda. Verifique se:\n\n"
-            "1. O arquivo `GDRIVE_FOLDER_URL` está configurado em `.streamlit/secrets.toml`\n"
-            "2. A pasta do Google Drive está compartilhada como pública\n"
-            "3. A pasta contém arquivos `.csv`",
+            "Nenhuma planilha disponível. Configure GDRIVE_FOLDER_URL em "
+            ".streamlit/secrets.toml ou coloque arquivos CSV na pasta data/.",
             icon="ℹ️"
         )
     else:
-        # Seletor de planilha
-        nomes_csv = {nome_amigavel_csv(p): p for p in csvs}
-        csv_escolhido_nome = st.selectbox(
-            "Selecionar planilha",
+        nomes_csv       = {nome_amigavel_csv(p): p for p in csvs}
+        csv_escolhido   = st.selectbox(
+            "Qual planilha deseja consultar?",
             options=list(nomes_csv.keys()),
-            help=(
-                "Escolha qual planilha SICONFI deseja consultar. "
-                "Novas planilhas adicionadas à pasta do Drive "
-                "aparecem automaticamente na próxima abertura do app."
-            )
+            help="Escolha o ano da planilha SICONFI. Novas planilhas adicionadas ao Drive aparecem automaticamente."
         )
-        csv_path = nomes_csv[csv_escolhido_nome]
+        csv_path = nomes_csv[csv_escolhido]
 
         st.divider()
 
-        # Filtros territoriais
         sa, sb = st.columns(2)
-
         with sa:
             opcoes_reg  = ["Todas as Regionais"] + list(REGIOES.keys())
             regioes_sel = st.multiselect(
                 "Regional(is)",
                 options=opcoes_reg,
                 default=["Todas as Regionais"],
-                help=(
-                    "Filtra os dados pelos municípios da(s) regional(is) selecionada(s). "
-                    "O Planeja+ abrange 26 municípios em 7 regionais nos estados "
-                    "de ES, RJ e SP."
-                )
+                help="Filtre pelos municípios de uma ou mais regionais do Planeja+."
             )
             if any("VI" in r for r in regioes_sel):
                 st.markdown(
                     '<div class="aviso-vi"><strong>Regional VI:</strong> '
-                    'Paraty (RJ) e Caraguatatuba/Ilhabela (SP) integram esta regional. '
-                    'Considere isso ao cruzar dados com políticas estaduais.</div>',
+                    'Paraty (RJ) e Caraguatatuba/Ilhabela (SP) integram esta regional.</div>',
                     unsafe_allow_html=True
                 )
 
@@ -533,105 +498,69 @@ with tab_siconfi:
                 "Município(s)",
                 options=["Todos"] + muns_disp,
                 default=["Todos"],
-                help=(
-                    "Refine a busca para um ou mais municípios específicos "
-                    "dentro das regionais selecionadas."
-                )
+                help="Refine para um ou mais municípios específicos."
             )
 
-        muns_filtro_sic = (
-            muns_disp
-            if "Todos" in muns_sel or not muns_sel
-            else muns_sel
-        )
+        muns_filtro_sic = muns_disp if "Todos" in muns_sel or not muns_sel else muns_sel
 
         termo_rec_sic = st.text_input(
-            "Filtrar por tipo de receita",
-            placeholder="Ex: royalt, participação especial, CFEM...",
+            "Filtrar por tipo de receita ou código",
+            placeholder="Ex: royalt   |   1.7   |   participação especial   |   CFEM",
             key="termo_siconfi",
             help=(
-                "Busca parcial no campo de fonte ou tipo de receita. "
-                "Não diferencia maiúsculas de minúsculas. "
-                "Exemplos: 'royalt' retorna royalties de petróleo e gás; "
-                "'participação' retorna participações especiais; "
-                "'cfem' retorna Compensação Financeira pela Exploração Mineral."
+                "Busca no campo de conta/código. Exemplos:\n\n"
+                "royalt → todas as receitas de royalties\n\n"
+                "1.7 → pelo código de royalties de petróleo\n\n"
+                "participação → participações especiais\n\n"
+                "CFEM → Compensação Financeira pela Exploração Mineral"
             )
         )
 
-        # Mapeamento de colunas
         try:
             colunas_sic = get_csv_columns(csv_path)
         except Exception as e:
-            st.error(f"Erro ao ler as colunas da planilha: {e}")
+            st.error(f"Erro ao ler colunas da planilha: {e}")
             colunas_sic = []
 
         if colunas_sic:
-            with st.expander(
-                "⚙️ Mapeamento de colunas (clique para ajustar se necessário)",
-                expanded=False
-            ):
+            with st.expander("⚙️ Ajuste de colunas (clique se os resultados estiverem errados)", expanded=False):
                 st.caption(
-                    "O DataMiner detectou automaticamente as colunas da planilha. "
-                    "Ajuste aqui apenas se as colunas exibidas nos resultados "
-                    "não corresponderem aos dados esperados."
+                    "O sistema detectou as colunas automaticamente. "
+                    "Ajuste aqui apenas se o resultado não corresponder ao esperado. "
+                    "Para o SICONFI padrão: Município = Instituição, "
+                    "Fonte de Receita = Conta, Valor = Valor."
                 )
                 sc1, sc2, sc3 = st.columns(3)
                 with sc1:
-                    col_mun_sic = st.selectbox(
-                        "Município",
-                        colunas_sic,
-                        index=acha_indice(colunas_sic, ["munic"])
-                    )
-                    col_uf_sic = st.selectbox(
-                        "UF",
-                        colunas_sic,
-                        index=acha_indice(colunas_sic, ["uf", "estado"])
-                    )
+                    col_mun_sic = st.selectbox("Coluna de Município", colunas_sic,
+                                               index=acha_indice(colunas_sic, ["institui", "munic", "prefeit"]))
+                    col_uf_sic  = st.selectbox("Coluna de UF", colunas_sic,
+                                               index=acha_indice(colunas_sic, ["uf", "estado"]))
                 with sc2:
-                    col_rec_sic = st.selectbox(
-                        "Fonte / Tipo de Receita",
-                        colunas_sic,
-                        index=acha_indice(colunas_sic, ["fonte", "conta", "descri"])
-                    )
-                    col_val_sic = st.selectbox(
-                        "Valor",
-                        colunas_sic,
-                        index=acha_indice(colunas_sic, ["valor", "receita", "montante"])
-                    )
+                    col_rec_sic = st.selectbox("Coluna de Receita/Código", colunas_sic,
+                                               index=acha_indice(colunas_sic, ["conta", "fonte", "descri"]))
+                    col_val_sic = st.selectbox("Coluna de Valor", colunas_sic,
+                                               index=acha_indice(colunas_sic, ["valor", "receita", "montante"]))
                 with sc3:
-                    usar_ano_sic = st.checkbox(
-                        "Filtrar por ano?",
-                        value=False,
-                        help=(
-                            "Ative para restringir a busca a anos específicos. "
-                            "Útil quando a planilha contém dados de múltiplos exercícios."
-                        )
-                    )
+                    usar_ano_sic = st.checkbox("Filtrar por ano?", value=False)
                     col_ano_sic  = None
                     anos_sel_sic = None
                     if usar_ano_sic:
-                        col_ano_sic = st.selectbox(
-                            "Coluna de Ano",
-                            colunas_sic,
-                            index=acha_indice(colunas_sic, ["ano", "exerc"])
-                        )
-                        with st.spinner("Lendo anos disponíveis..."):
-                            anos_disp = get_valores_unicos(csv_path, col_ano_sic)
-                        anos_sel_sic = st.multiselect(
-                            "Ano(s)", options=anos_disp, default=anos_disp
-                        )
+                        col_ano_sic  = st.selectbox("Coluna de Ano", colunas_sic,
+                                                    index=acha_indice(colunas_sic, ["ano", "exerc"]))
+                        anos_disp    = get_valores_unicos(csv_path, col_ano_sic)
+                        anos_sel_sic = st.multiselect("Ano(s)", options=anos_disp, default=anos_disp)
 
             st.info(
-                f"Planilha selecionada: **{csv_escolhido_nome}**  "
-                f"|  {len(muns_filtro_sic)} município(s) no filtro.",
+                f"Planilha: **{csv_escolhido}** | {len(muns_filtro_sic)} município(s) no filtro.",
                 icon="ℹ️"
             )
 
-            if st.button("🔎 Buscar na planilha", type="primary"):
+            if st.button("🔎 Buscar na planilha SICONFI", type="primary", use_container_width=False):
                 if not muns_filtro_sic:
-                    st.warning("Selecione ao menos um município ou regional.")
+                    st.warning("Selecione ao menos um município.")
                 else:
-                    with st.spinner("Consultando com DuckDB..."):
+                    with st.spinner("Consultando planilha..."):
                         df_sic = query_csv(
                             csv_path      = csv_path,
                             municipios    = muns_filtro_sic,
@@ -642,32 +571,22 @@ with tab_siconfi:
                             anos          = anos_sel_sic
                         )
 
-                    st.session_state.df_resultado    = df_sic
-                    st.session_state.log_resultado   = (
-                        f"{len(df_sic):,} registros encontrados em "
-                        f"**{csv_escolhido_nome}** para "
-                        f"{len(muns_filtro_sic)} município(s)."
+                    st.session_state.df_resultado  = df_sic
+                    st.session_state.log_resultado = (
+                        f"{len(df_sic):,} registros encontrados em **{csv_escolhido}** "
+                        f"para {len(muns_filtro_sic)} município(s)."
                         if not df_sic.empty
-                        else "Nenhum registro encontrado para os filtros selecionados."
+                        else "Nenhum registro encontrado. Verifique os filtros aplicados."
                     )
                     st.session_state.filtros_resultado = {
-                        "Fonte": f"SICONFI / {csv_escolhido_nome}",
-                        "Regional(is)": (
-                            ", ".join(
-                                r.split(" - ")[-1]
-                                for r in regioes_sel
-                                if r != "Todas as Regionais"
-                            ) or "Todas"
+                        "Fonte":         f"SICONFI / {csv_escolhido}",
+                        "Regional(is)":  (
+                            ", ".join(r.split(" - ")[-1] for r in regioes_sel if r != "Todas as Regionais")
+                            or "Todas"
                         ),
-                        "Municípios": (
-                            ", ".join(muns_filtro_sic[:5])
-                            + ("..." if len(muns_filtro_sic) > 5 else "")
-                        ),
-                        "Tipo de Receita": termo_rec_sic or "Todos",
-                        "Ano(s)": (
-                            ", ".join(str(a) for a in anos_sel_sic)
-                            if anos_sel_sic else "Todos"
-                        )
+                        "Municípios":    ", ".join(muns_filtro_sic[:5]) + ("..." if len(muns_filtro_sic) > 5 else ""),
+                        "Tipo Receita":  termo_rec_sic or "Todos",
+                        "Ano(s)":        ", ".join(str(a) for a in anos_sel_sic) if anos_sel_sic else "Todos"
                     }
 
 
@@ -681,7 +600,7 @@ filtros_res = st.session_state.get("filtros_resultado", {})
 
 if df_res is not None:
     st.divider()
-    st.subheader("📊 Resultados")
+    st.subheader("📊 Resultado da Busca")
 
     if log_res:
         if not df_res.empty:
@@ -691,111 +610,121 @@ if df_res is not None:
 
     if not df_res.empty:
 
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Registros", f"{len(df_res):,}")
+        # Métricas resumidas
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Registros encontrados", f"{len(df_res):,}")
         m2.metric(
             "Municípios",
-            df_res["_municipio"].nunique()
-            if "_municipio" in df_res.columns
+            df_res["_municipio"].nunique() if "_municipio" in df_res.columns
             else df_res.iloc[:, 0].nunique()
         )
         m3.metric(
-            "Arquivos fonte",
-            df_res["_fonte_arquivo"].nunique()
-            if "_fonte_arquivo" in df_res.columns
+            "Fontes consultadas",
+            df_res["_fonte_arquivo"].nunique() if "_fonte_arquivo" in df_res.columns
             else "N/A"
         )
-        m4.metric(
-            "Tipos de doc.",
-            df_res["_tipo_documento"].nunique()
-            if "_tipo_documento" in df_res.columns
-            else len(df_res.columns)
-        )
-
-        st.dataframe(df_res, use_container_width=True, height=420)
 
         st.divider()
 
-        with st.expander("⚙️ Opções de exportação", expanded=False):
-            op1, op2 = st.columns(2)
-            with op1:
-                incluir_prov = st.checkbox(
-                    "Incluir colunas de origem",
-                    value=True,
-                    help=(
-                        "As colunas de origem (identificadas pelo prefixo '_') "
-                        "registram de qual arquivo e linha cada dado foi extraído, "
-                        "garantindo rastreabilidade completa do resultado. "
-                        "Desmarque para um arquivo mais limpo, sem essas colunas."
-                    )
-                )
-            with op2:
-                modo_simples_exp = st.checkbox(
-                    "Modo simples (sem cabeçalho institucional)",
-                    value=False,
-                    help=(
-                        "Desmarcado: PDF e Word incluem cabeçalho com logos "
-                        "Planeja+ e PGP, data e filtros aplicados. "
-                        "Marcado: apenas a tabela de dados, sem identidade visual."
-                    )
-                )
-
-        st.subheader("⬇️ Exportar Resultados")
-        nome_base = f"dataminer_{datetime.now().strftime('%Y%m%d_%H%M')}"
-
-        bc1, bc2, bc3, bc4 = st.columns(4)
-
-        with bc1:
-            st.download_button(
-                label="📥 CSV",
-                data=exportar_csv(df_res, incluir_prov),
-                file_name=f"{nome_base}.csv",
-                mime="text/csv",
-                use_container_width=True,
-                help="Melhor para grandes volumes e integração com outros sistemas."
+        # ---- Copiar para planilha (destaque, expandido por padrão) ----
+        with st.expander("📋 Copiar dados para sua planilha", expanded=True):
+            st.markdown(
+                "**Como usar:** clique na área de texto abaixo, "
+                "pressione **Ctrl+A** para selecionar tudo e **Ctrl+C** para copiar. "
+                "Em seguida, abra sua planilha no Excel ou Google Sheets e pressione **Ctrl+V**. "
+                "Os dados vão direto para as colunas certas."
             )
-
-        with bc2:
-            try:
-                st.download_button(
-                    label="📊 Excel",
-                    data=exportar_xlsx(df_res, filtros_res, modo_simples_exp, incluir_prov),
-                    file_name=f"{nome_base}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    help="Planilha com formatação, cores e colunas de origem destacadas."
-                )
-            except Exception as e:
-                st.error(f"Excel: {e}")
-
-        with bc3:
-            try:
-                st.download_button(
-                    label="📄 PDF",
-                    data=exportar_pdf(df_res, filtros_res, modo_simples_exp, incluir_prov),
-                    file_name=f"{nome_base}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    help="Relatório com cabeçalho institucional Planeja+ e PGP."
-                )
-            except Exception as e:
-                st.error(f"PDF: {e}")
-
-        with bc4:
-            try:
-                st.download_button(
-                    label="📝 Word",
-                    data=exportar_docx(df_res, filtros_res, modo_simples_exp, incluir_prov),
-                    file_name=f"{nome_base}.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    use_container_width=True,
-                    help="Documento Word para edição e incorporação em relatórios."
-                )
-            except Exception as e:
-                st.error(f"Word: {e}")
-
-        if len(df_res) >= 2000:
+            tsv = df_para_texto_copiavel(df_res)
+            st.text_area(
+                "Dados prontos para copiar:",
+                value=tsv,
+                height=180,
+                label_visibility="collapsed",
+                key="area_copia"
+            )
+            colunas_dados = [c for c in df_res.columns if not str(c).startswith("_")]
             st.caption(
-                "O PDF exporta no máximo 2.000 linhas e o Word 1.000. "
-                "Para volumes maiores, use CSV ou Excel."
+                f"{len(df_res):,} linhas · {len(colunas_dados)} colunas · "
+                f"Colunas de origem não incluídas nesta cópia (use o CSV para rastreabilidade completa)"
             )
+
+        # ---- Tabela interativa ----
+        st.markdown("**Visualizar tabela completa:**")
+        st.dataframe(df_res, use_container_width=True, height=350)
+
+        # ---- Downloads ----
+        with st.expander("⬇️ Baixar arquivo completo", expanded=False):
+            st.caption(
+                "Use o download quando precisar do arquivo para enviar, arquivar "
+                "ou trabalhar com mais dados do que é prático copiar manualmente."
+            )
+
+            nome_base = f"dataminer_{datetime.now().strftime('%Y%m%d_%H%M')}"
+
+            with st.expander("⚙️ Opções", expanded=False):
+                op1, op2 = st.columns(2)
+                with op1:
+                    incluir_prov = st.checkbox(
+                        "Incluir colunas de origem",
+                        value=True,
+                        help="As colunas de origem (prefixo '_') mostram de qual arquivo cada dado veio."
+                    )
+                with op2:
+                    modo_simples_exp = st.checkbox(
+                        "Sem cabeçalho institucional no PDF/Word",
+                        value=False
+                    )
+
+            bc1, bc2, bc3, bc4 = st.columns(4)
+
+            with bc1:
+                st.download_button(
+                    label="📥 CSV",
+                    data=exportar_csv(df_res, incluir_prov),
+                    file_name=f"{nome_base}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    help="Abre no Excel. Melhor para grandes volumes."
+                )
+
+            with bc2:
+                try:
+                    st.download_button(
+                        label="📊 Excel",
+                        data=exportar_xlsx(df_res, filtros_res, modo_simples_exp, incluir_prov),
+                        file_name=f"{nome_base}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        help="Planilha com formatação e cores."
+                    )
+                except Exception as e:
+                    st.error(f"Excel: {e}")
+
+            with bc3:
+                try:
+                    st.download_button(
+                        label="📄 PDF",
+                        data=exportar_pdf(df_res, filtros_res, modo_simples_exp, incluir_prov),
+                        file_name=f"{nome_base}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        help="Relatório com cabeçalho institucional."
+                    )
+                except Exception as e:
+                    st.error(f"PDF: {e}")
+
+            with bc4:
+                try:
+                    st.download_button(
+                        label="📝 Word",
+                        data=exportar_docx(df_res, filtros_res, modo_simples_exp, incluir_prov),
+                        file_name=f"{nome_base}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True,
+                        help="Documento Word para incorporar em relatórios."
+                    )
+                except Exception as e:
+                    st.error(f"Word: {e}")
+
+            if len(df_res) >= 2000:
+                st.caption("PDF exporta até 2.000 linhas e Word até 1.000. Use CSV para volumes maiores.")
