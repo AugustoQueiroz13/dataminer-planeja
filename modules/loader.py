@@ -2,36 +2,25 @@
 # loader.py
 # Sincronização de planilhas a partir de uma pasta pública do Google Drive.
 #
-# Comportamento:
-#   - Na inicialização do app, sincroniza automaticamente com a pasta do Drive
-#   - Arquivos já existentes localmente são ignorados (não baixados novamente)
-#   - Novos arquivos adicionados à pasta aparecem na próxima abertura do app
-#   - Se a sincronização falhar, usa os arquivos já disponíveis localmente
-#
-# Configuração necessária em .streamlit/secrets.toml:
-#   GDRIVE_FOLDER_URL = "https://drive.google.com/drive/folders/SEU_ID_AQUI"
+# Inclui remoção automática do BOM (Byte Order Mark) dos arquivos CSV.
+# O BOM em UTF-8 (bytes 0xEF 0xBB 0xBF) faz o DuckDB não reconhecer
+# a linha de cabeçalho, causando exibição de dados no lugar de nomes de colunas.
 # ==============================================================================
 
 import os
 import streamlit as st
 
-DATA_DIR         = "data"
+DATA_DIR          = "data"
 GDRIVE_FOLDER_KEY = "GDRIVE_FOLDER_URL"
 
 
 def sincronizar_e_listar_csvs() -> list:
     """
     Sincroniza os arquivos CSV de uma pasta pública do Google Drive
-    com a pasta local data/. Retorna a lista de caminhos locais
-    de todos os CSVs disponíveis.
-
-    Na primeira execução, faz o download dos arquivos.
-    Nas execuções seguintes, apenas verifica se há arquivos novos.
-    Se a sincronização falhar, usa os arquivos já presentes localmente.
+    com a pasta local data/. Retorna lista de caminhos locais disponíveis.
     """
     os.makedirs(DATA_DIR, exist_ok=True)
 
-    # Lê a URL da pasta configurada em secrets.toml
     try:
         folder_url = st.secrets.get(GDRIVE_FOLDER_KEY, None)
     except Exception:
@@ -46,20 +35,21 @@ def sincronizar_e_listar_csvs() -> list:
             icon="ℹ️"
         )
 
+    # Remove BOM de todos os CSVs para garantir leitura correta pelo DuckDB
+    _remover_bom_csvs(DATA_DIR)
+
     return _listar_csvs_locais()
 
 
 def _sincronizar_pasta(folder_url: str):
     """
     Usa gdown para baixar arquivos da pasta pública do Google Drive.
-    Arquivos já existentes localmente são preservados e não baixados novamente.
+    Arquivos já existentes localmente são preservados.
     """
     try:
         import gdown
     except ImportError:
-        st.sidebar.warning(
-            "Pacote 'gdown' não instalado. Execute: pip install gdown"
-        )
+        st.sidebar.warning("Pacote 'gdown' não instalado. Execute: pip install gdown")
         return
 
     csvs_antes = set(_listar_csvs_locais())
@@ -70,17 +60,16 @@ def _sincronizar_pasta(folder_url: str):
                 url=folder_url,
                 output=DATA_DIR,
                 quiet=True,
-                use_cookies=False,
+                use_cookies=False
             )
-           
+
         csvs_depois = set(_listar_csvs_locais())
-        novos = csvs_depois - csvs_antes
+        novos       = csvs_depois - csvs_antes
 
         if novos:
             nomes = [os.path.basename(p) for p in novos]
             st.sidebar.success(
-                f"Sincronizado: {len(novos)} arquivo(s) novo(s) — "
-                f"{', '.join(nomes)}",
+                f"Sincronizado: {len(novos)} arquivo(s) novo(s) — {', '.join(nomes)}",
                 icon="✅"
             )
 
@@ -92,10 +81,39 @@ def _sincronizar_pasta(folder_url: str):
                 icon="⚠️"
             )
         else:
-            st.sidebar.error(
-                f"Erro ao acessar a pasta do Google Drive: {e}",
-                icon="🚫"
-            )
+            st.sidebar.error(f"Erro ao acessar a pasta do Google Drive: {e}", icon="🚫")
+
+
+def _remover_bom_csvs(pasta: str):
+    """
+    Remove o BOM (Byte Order Mark) UTF-8 do início dos arquivos CSV.
+
+    O BOM é uma sequência de 3 bytes (0xEF 0xBB 0xBF) que alguns programas
+    como Excel inserem no início de arquivos CSV. O DuckDB não consegue
+    ignorar o BOM ao ler o cabeçalho, e acaba tratando a linha de cabeçalho
+    como dados — exibindo valores da primeira linha no lugar dos nomes das colunas.
+
+    Essa função corrige o arquivo em disco uma única vez, se o BOM estiver presente.
+    """
+    BOM_UTF8 = b"\xef\xbb\xbf"
+
+    for raiz, _, arquivos in os.walk(pasta):
+        for nome in arquivos:
+            if not nome.lower().endswith(".csv"):
+                continue
+
+            caminho = os.path.join(raiz, nome)
+            try:
+                with open(caminho, "rb") as f:
+                    primeiros_bytes = f.read(3)
+
+                if primeiros_bytes == BOM_UTF8:
+                    with open(caminho, "rb") as f:
+                        conteudo_completo = f.read()
+                    with open(caminho, "wb") as f:
+                        f.write(conteudo_completo[3:])  # Grava sem os 3 bytes do BOM
+            except Exception:
+                continue
 
 
 def _listar_csvs_locais() -> list:
@@ -117,7 +135,7 @@ def _listar_csvs_locais() -> list:
 
 def nome_amigavel_csv(caminho: str) -> str:
     """
-    Converte o nome do arquivo CSV em um rótulo legível para o seletor.
-    Exemplo: 'siconfi_receitas_2024.csv' -> 'siconfi_receitas_2024'
+    Converte o nome do arquivo CSV em rótulo legível para o seletor.
+    Exemplo: 'dados 2024.csv' -> 'dados 2024'
     """
     return os.path.splitext(os.path.basename(caminho))[0]
