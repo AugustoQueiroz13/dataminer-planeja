@@ -1,40 +1,12 @@
-# ==============================================================================
-# DataMiner Planeja+ - Dependências Python
-# Atualizado: expansão para LOA, PPA, OCR e cruzamento de dados
-# ==============================================================================
-
-# Interface e servidor web
 streamlit>=1.35.0
-
-# Motor de consulta em arquivos grandes sem carregar tudo na memória
 duckdb>=0.10.0
-
-# Manipulação de dados em tabelas
 pandas>=2.0.0
-
-# Leitura e escrita de arquivos Excel
 openpyxl>=3.1.0
-
-# Extração de tabelas em PDFs com texto selecionável
 pdfplumber>=0.11.0
-
-# Geração de PDF com cabeçalho institucional
 fpdf2>=2.7.0
-
-# Download de arquivos grandes do Google Drive
 gdown>=5.1.0
-
-# OCR: reconhecimento de texto em imagens e PDFs escaneados
 pytesseract>=0.3.10
-
-# Conversão de páginas de PDF em imagens para o OCR
 pdf2image>=1.17.0
-
-# Manipulação e pré-processamento de imagens para o OCR
 Pillow>=10.0.0
-
-# Busca fuzzy de códigos orçamentários (tolerante a variações de formato)
 rapidfuzz>=3.0.0
-
-# Geração de arquivos Word (.docx)
 python-docx>=1.1.0

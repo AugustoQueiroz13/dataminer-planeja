@@ -337,12 +337,40 @@ with st.sidebar:
 # Área Principal: Abas
 # ==============================================================================
 
-tab_documentos, tab_siconfi = st.tabs([
+tab_documentos, tab_siconfi, tab_ajuda = st.tabs([
     "🔍 Busca de Dados em Documentos enviados",
-    "📂 Fonte de Dados SICONFI"
+    "📂 Fonte de Dados SICONFI",
+    "📖 Manual de Uso"
 ])
 
+# ==============================================================================
+# Aba: Manual de Uso
+# ==============================================================================
 
+with tab_ajuda:
+    import streamlit.components.v1 as components
+
+    manual_path = "assets/manual.html"
+
+    if os.path.exists(manual_path):
+        with open(manual_path, "r", encoding="utf-8") as f:
+            html_manual = f.read()
+
+        st.download_button(
+            label="⬇️ Baixar manual (abrir no navegador e Ctrl+P para salvar como PDF)",
+            data=html_manual.encode("utf-8"),
+            file_name="Manual_DataMiner_Planeja.html",
+            mime="text/html",
+            use_container_width=False
+        )
+
+        components.html(html_manual, height=820, scrolling=True)
+    else:
+        st.info(
+            "Manual não encontrado. Certifique-se de que o arquivo "
+            "`manual.html` está na pasta `assets/` do projeto.",
+            icon="📖"
+        )
 # ==============================================================================
 # Aba: Busca de Dados em Documentos enviados
 # ==============================================================================
