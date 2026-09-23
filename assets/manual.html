@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manual Prático — DataMiner Planeja+</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 11pt;
+    color: #1a1a1a;
+    background: #fff;
+    line-height: 1.6;
+  }
+
+  /* ── Capa ── */
+  .capa {
+    background: linear-gradient(160deg, #1f4e2f 60%, #2d6b41);
+    color: white;
+    padding: 80px 60px 60px;
+    min-height: 320px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    page-break-after: always;
+  }
+  .capa .tag {
+    font-size: 9pt;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    opacity: 0.7;
+    margin-bottom: 16px;
+  }
+  .capa h1 {
+    font-size: 32pt;
+    font-weight: 800;
+    line-height: 1.1;
+    margin-bottom: 12px;
+  }
+  .capa .subtitulo {
+    font-size: 13pt;
+    opacity: 0.85;
+    margin-bottom: 40px;
+  }
+  .capa .meta {
+    font-size: 9pt;
+    opacity: 0.6;
+    border-top: 1px solid rgba(255,255,255,0.3);
+    padding-top: 16px;
+  }
+
+  /* ── Layout ── */
+  .conteudo { max-width: 820px; margin: 0 auto; padding: 40px 48px; }
+
+  /* ── Sumário ── */
+  .sumario { page-break-after: always; }
+  .sumario h2 {
+    color: #1f4e2f;
+    font-size: 18pt;
+    border-bottom: 3px solid #1f4e2f;
+    padding-bottom: 8px;
+    margin-bottom: 24px;
+  }
+  .sumario ol { padding-left: 20px; }
+  .sumario li { margin: 6px 0; font-size: 11pt; }
+  .sumario li a { color: #1f4e2f; text-decoration: none; }
+  .sumario .subsecao { margin-left: 20px; font-size: 10pt; color: #444; }
+
+  /* ── Seções ── */
+  .secao { margin-bottom: 48px; page-break-inside: avoid; }
+  .secao-titulo {
+    background: #1f4e2f;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 6px;
+    font-size: 14pt;
+    font-weight: 700;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .secao-titulo .num {
+    background: rgba(255,255,255,0.2);
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11pt;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+
+  h3 {
+    color: #1f4e2f;
+    font-size: 12pt;
+    margin: 20px 0 10px;
+    padding-left: 12px;
+    border-left: 4px solid #1f4e2f;
+  }
+
+  h4 {
+    color: #444;
+    font-size: 10.5pt;
+    margin: 14px 0 6px;
+    font-weight: 700;
+  }
+
+  p { margin-bottom: 10px; }
+
+  /* ── Passo a passo ── */
+  .passos { counter-reset: passo; }
+  .passo {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 14px;
+    align-items: flex-start;
+  }
+  .passo-num {
+    background: #1f4e2f;
+    color: white;
+    border-radius: 50%;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10pt;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .passo-texto strong { display: block; margin-bottom: 2px; color: #1f4e2f; }
+
+  /* ── Dica e Atenção ── */
+  .dica {
+    background: #f0f7f0;
+    border-left: 4px solid #1f4e2f;
+    padding: 12px 16px;
+    border-radius: 0 6px 6px 0;
+    margin: 14px 0;
+    font-size: 10.5pt;
+  }
+  .dica strong { color: #1f4e2f; }
+  .atencao {
+    background: #fff8e1;
+    border-left: 4px solid #f9a825;
+    padding: 12px 16px;
+    border-radius: 0 6px 6px 0;
+    margin: 14px 0;
+    font-size: 10.5pt;
+  }
+  .atencao strong { color: #e65100; }
+
+  /* ── Tabela ── */
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 10pt; }
+  th {
+    background: #1f4e2f;
+    color: white;
+    padding: 8px 12px;
+    text-align: left;
+    font-weight: 600;
+  }
+  td { padding: 7px 12px; border-bottom: 1px solid #e0e0e0; }
+  tr:nth-child(even) td { background: #f5faf5; }
+
+  /* ── Código / campo ── */
+  code {
+    background: #f0f7f0;
+    border: 1px solid #c8e6c9;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 10pt;
+    color: #1f4e2f;
+  }
+
+  /* ── Campo de UI ── */
+  .campo {
+    display: inline-block;
+    background: #263238;
+    color: #e0e0e0;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 9.5pt;
+    font-weight: 600;
+  }
+
+  /* ── Botão representativo ── */
+  .btn {
+    display: inline-block;
+    background: #1f4e2f;
+    color: white;
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-size: 9.5pt;
+    font-weight: 700;
+  }
+
+  /* ── Grid de exemplos ── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 14px 0; }
+  .card {
+    border: 1px solid #c8e6c9;
+    border-radius: 8px;
+    padding: 14px;
+    background: #fafffe;
+  }
+  .card h4 { color: #1f4e2f; margin-top: 0; }
+
+  /* ── Separador ── */
+  hr { border: none; border-top: 1px solid #e0e0e0; margin: 32px 0; }
+
+  /* ── Rodapé ── */
+  .rodape {
+    text-align: center;
+    font-size: 9pt;
+    color: #999;
+    border-top: 1px solid #e0e0e0;
+    padding-top: 20px;
+    margin-top: 60px;
+  }
+
+  /* ── Impressão ── */
+  @media print {
+    body { font-size: 10pt; }
+    .capa { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .secao-titulo { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .passo-num { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .conteudo { padding: 24px 32px; }
+    .secao { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<!-- CAPA -->
+<div class="capa">
+  <div class="tag">Guia do Usuário · Versão 1.0</div>
+  <h1>DataMiner<br>Planeja+</h1>
+  <div class="subtitulo">
+    Manual Prático de Uso<br>
+    Extração e Cruzamento de Dados Orçamentários Municipais
+  </div>
+  <div class="meta">
+    Associação Raízes &nbsp;|&nbsp; Programa Planeja+ &nbsp;|&nbsp; PGP — Projeto de Gestão e Pesquisa
+  </div>
+</div>
+
+<!-- CONTEÚDO -->
+<div class="conteudo">
+
+  <!-- SUMÁRIO -->
+  <div class="sumario">
+    <h2>Sumário</h2>
+    <ol>
+      <li><a href="#visao">O que é o DataMiner Planeja+</a></li>
+      <li><a href="#tela">Conhecendo a tela inicial</a></li>
+      <li>
+        <a href="#carregar">Como carregar documentos</a>
+        <ol class="subsecao">
+          <li><a href="#tipos">Tipos de arquivo aceitos</a></li>
+          <li><a href="#passo-upload">Passo a passo do upload</a></li>
+          <li><a href="#biblioteca">Gerenciar a biblioteca</a></li>
+        </ol>
+      </li>
+      <li>
+        <a href="#busca-docs">Busca em Documentos enviados</a>
+        <ol class="subsecao">
+          <li><a href="#codigo">Buscar por código</a></li>
+          <li><a href="#texto">Buscar por descrição em texto</a></li>
+          <li><a href="#modos">Modos de busca</a></li>
+        </ol>
+      </li>
+      <li>
+        <a href="#siconfi">Fonte de Dados SICONFI</a>
+        <ol class="subsecao">
+          <li><a href="#siconfi-filtros">Filtros disponíveis</a></li>
+          <li><a href="#ajuste">Ajuste de colunas</a></li>
+        </ol>
+      </li>
+      <li>
+        <a href="#resultados">Usando os Resultados</a>
+        <ol class="subsecao">
+          <li><a href="#copiar">Copiar para planilha</a></li>
+          <li><a href="#exportar">Exportar em outros formatos</a></li>
+        </ol>
+      </li>
+      <li><a href="#exemplos">Exemplos práticos de busca</a></li>
+      <li><a href="#problemas">Problemas comuns e soluções</a></li>
+    </ol>
+  </div>
+
+  <!-- 1. O QUE É -->
+  <div class="secao" id="visao">
+    <div class="secao-titulo"><span class="num">1</span> O que é o DataMiner Planeja+</div>
+
+    <p>O <strong>DataMiner Planeja+</strong> é uma ferramenta de extração e cruzamento de dados orçamentários municipais desenvolvida pelo PGP (Projeto de Gestão e Pesquisa) da Associação Raízes para o Programa Planeja+.</p>
+
+    <p>Com ela, os pesquisadores podem:</p>
+    <ul style="margin: 10px 0 10px 20px;">
+      <li>Enviar documentos municipais (LOA, PPA, balanços, relatórios) e buscar informações dentro deles</li>
+      <li>Cruzar um mesmo código orçamentário em múltiplos documentos de diferentes municípios</li>
+      <li>Consultar as planilhas do SICONFI (Tesouro Nacional) diretamente pelo sistema</li>
+      <li>Exportar os resultados em CSV, Excel, PDF e Word para alimentar outras análises</li>
+    </ul>
+
+    <div class="dica">
+      <strong>Para que serve na prática?</strong> Se você precisa saber o valor de royalties de petróleo recebido por cada município do Planeja+ em 2024, basta carregar as LOAs ou usar a planilha SICONFI e buscar pelo código <code>1.7</code>. O sistema localiza e consolida os dados automaticamente.
+    </div>
+
+    <p>O sistema funciona inteiramente no navegador, sem necessidade de instalação. Basta acessar o link fornecido pela equipe do PGP.</p>
+  </div>
+
+  <!-- 2. TELA INICIAL -->
+  <div class="secao" id="tela">
+    <div class="secao-titulo"><span class="num">2</span> Conhecendo a tela inicial</div>
+
+    <p>Ao abrir o DataMiner, você verá três áreas principais:</p>
+
+    <table>
+      <tr><th>Área</th><th>Localização</th><th>O que faz</th></tr>
+      <tr><td><strong>Painel lateral (esquerda)</strong></td><td>Sidebar</td><td>Enviar documentos e gerenciar a biblioteca da sessão</td></tr>
+      <tr><td><strong>Aba "Busca em Documentos"</strong></td><td>Centro</td><td>Buscar em arquivos que você enviou (LOA, PPA, etc.)</td></tr>
+      <tr><td><strong>Aba "Fonte de Dados SICONFI"</strong></td><td>Centro</td><td>Consultar as planilhas do SICONFI sincronizadas do Drive</td></tr>
+    </table>
+
+    <p>Os resultados de qualquer busca aparecem <strong>abaixo das abas</strong>, sempre no mesmo lugar, facilitando a leitura e exportação.</p>
+
+    <div class="atencao">
+      <strong>Atenção: sessão temporária.</strong> Os documentos carregados existem apenas enquanto você mantém a aba do navegador aberta. Ao fechar ou recarregar a página, a biblioteca é limpa e os documentos precisam ser enviados novamente. Os resultados exportados (CSV, PDF, etc.) ficam salvos no seu computador.
+    </div>
+  </div>
+
+  <!-- 3. CARREGAR DOCUMENTOS -->
+  <div class="secao" id="carregar">
+    <div class="secao-titulo"><span class="num">3</span> Como carregar documentos</div>
+
+    <h3 id="tipos">Tipos de arquivo aceitos</h3>
+
+    <table>
+      <tr><th>Formato</th><th>Extensão</th><th>Quando usar</th></tr>
+      <tr><td>Planilha Excel</td><td><code>.xlsx</code> <code>.xls</code></td><td>LOAs e PPAs em planilha, relatórios do SICONFI baixados individualmente</td></tr>
+      <tr><td>CSV</td><td><code>.csv</code></td><td>Planilhas exportadas de sistemas de transparência</td></tr>
+      <tr><td>PDF (digital)</td><td><code>.pdf</code></td><td>PDFs gerados por computador com texto selecionável — não ative o OCR</td></tr>
+      <tr><td>PDF (escaneado)</td><td><code>.pdf</code></td><td>PDFs digitalizados em scanner — <strong>ative o OCR</strong></td></tr>
+      <tr><td>Imagem</td><td><code>.png</code> <code>.jpg</code> <code>.jpeg</code></td><td>Fotos de documentos — ative o OCR automaticamente</td></tr>
+    </table>
+
+    <div class="dica">
+      <strong>Como saber se o PDF precisa de OCR?</strong> Tente selecionar um texto com o mouse no PDF antes de enviar. Se conseguir selecionar e copiar, é um PDF digital (não precisa de OCR). Se não conseguir, é escaneado (precisa de OCR).
+    </div>
+
+    <h3 id="passo-upload">Passo a passo do upload</h3>
+
+    <div class="passos">
+      <div class="passo">
+        <div class="passo-num">1</div>
+        <div class="passo-texto">
+          <strong>Clique em "Selecione o arquivo" no painel lateral</strong>
+          Escolha o arquivo no seu computador. O sistema aceita até 200 MB por arquivo.
+        </div>
+      </div>
+      <div class="passo">
+        <div class="passo-num">2</div>
+        <div class="passo-texto">
+          <strong>Selecione o município</strong>
+          Escolha a qual município do Planeja+ este documento pertence. Os 26 municípios das 7 regionais estão disponíveis na lista.
+        </div>
+      </div>
+      <div class="passo">
+        <div class="passo-num">3</div>
+        <div class="passo-texto">
+          <strong>Escolha o tipo de documento</strong>
+          LOA, PPA, LDO, Balanço Orçamentário, SICONFI ou Outro. Essa informação aparece nos resultados para identificar a fonte.
+        </div>
+      </div>
+      <div class="passo">
+        <div class="passo-num">4</div>
+        <div class="passo-texto">
+          <strong>Informe o ano do documento</strong>
+          Para LOA e LDO, informe o exercício: <code>2024</code>. Para PPA, informe o período: <code>2022-2025</code>.
+        </div>
+      </div>
+      <div class="passo">
+        <div class="passo-num">5</div>
+        <div class="passo-texto">
+          <strong>Ative o OCR se necessário</strong>
+          Para PDFs escaneados e imagens, marque a opção "Usar OCR". Para demais formatos, deixe desmarcado.
+        </div>
+      </div>
+      <div class="passo">
+        <div class="passo-num">6</div>
+        <div class="passo-texto">
+          <strong>Clique em "Processar e adicionar"</strong>
+          Aguarde a mensagem de confirmação com o número de registros extraídos. O documento aparecerá na lista da Biblioteca abaixo.
+        </div>
+      </div>
+    </div>
+
+    <p>Repita o processo para quantos documentos precisar. Você pode carregar LOAs de múltiplos municípios e cruzá-las numa única busca.</p>
+
+    <h3 id="biblioteca">Gerenciar a biblioteca</h3>
+    <p>A seção "Documentos carregados" no painel lateral mostra todos os arquivos da sessão atual. Clique em <strong>▶</strong> ao lado de cada documento para ver detalhes e o botão de remoção. Use "Remover todos" para limpar a biblioteca e começar uma nova análise.</p>
+  </div>
+
+  <!-- 4. BUSCA EM DOCUMENTOS -->
+  <div class="secao" id="busca-docs">
+    <div class="secao-titulo"><span class="num">4</span> Busca de Dados em Documentos enviados</div>
+
+    <p>Esta aba localiza informações nos documentos que você carregou na biblioteca. A busca percorre todas as colunas de texto de todos os arquivos simultaneamente.</p>
+
+    <h3 id="codigo">Buscar por código orçamentário</h3>
+    <p>Digite no campo <span class="campo">Código para buscar</span> o código que deseja encontrar. O sistema aceita qualquer formato:</p>
+
+    <table>
+      <tr><th>O que você digita</th><th>O que o sistema encontra</th></tr>
+      <tr><td><code>1.7</code></td><td>Todos os subcódigos de royalties: 1.7.2.2.52.0.0, 1.7.1.3.50.5.0, etc.</td></tr>
+      <tr><td><code>1.7.2.8.00.00</code></td><td>Exatamente este código e seus subcódigos (modo parcial)</td></tr>
+      <tr><td><code>17</code></td><td>Códigos que começam com 17, incluindo 1.7.x (sem pontos)</td></tr>
+      <tr><td><code>3390.39</code></td><td>Outros Serviços de Terceiros — Pessoa Jurídica</td></tr>
+      <tr><td><code>04.122</code></td><td>Administração Geral (classificação funcional)</td></tr>
+    </table>
+
+    <h3 id="texto">Buscar por descrição em texto</h3>
+    <p>Quando o município não usa códigos, ou para buscas mais amplas, use palavras-chave:</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h4>Exemplos de busca por texto</h4>
+        <p><code>royalt</code> → encontra "Royalties de Petróleo", "Cota-parte Royalties"</p>
+        <p><code>participação especial</code> → encontra Participações Especiais</p>
+        <p><code>CFEM</code> → Compensação Financeira pela Exploração Mineral</p>
+        <p><code>FEP</code> → Fundo Especial do Petróleo</p>
+      </div>
+      <div class="card">
+        <h4>Dicas de busca por texto</h4>
+        <p>Use termos <strong>parciais</strong>: "royalt" encontra tanto "royalty" quanto "royalties".</p>
+        <p>Não diferencia maiúsculas e minúsculas.</p>
+        <p>Acentos podem variar entre documentos — tente sem acento se não encontrar.</p>
+      </div>
+    </div>
+
+    <h3 id="modos">Modos de busca</h3>
+
+    <table>
+      <tr><th>Modo</th><th>Como funciona</th><th>Quando usar</th></tr>
+      <tr>
+        <td><strong>Parcial (recomendado)</strong></td>
+        <td>Busca ampla: hierarquia de código, texto livre, sem pontuação e subcódigos embutidos</td>
+        <td>Sempre. É o mais completo e cobre todas as variações de formato</td>
+      </tr>
+      <tr>
+        <td><strong>Exato</strong></td>
+        <td>O valor no documento deve ser idêntico ao buscado</td>
+        <td>Quando você sabe exatamente como o dado está registrado</td>
+      </tr>
+      <tr>
+        <td><strong>Aproximado</strong></td>
+        <td>Tolerante a erros de digitação e imperfeições de OCR</td>
+        <td>Documentos escaneados com qualidade baixa ou erros de digitação</td>
+      </tr>
+    </table>
+
+    <div class="dica">
+      <strong>Filtro de município:</strong> deixe "Todos os municípios" para buscar em tudo que está na biblioteca, ou selecione um específico para restringir a um único município. Só aparecem os municípios que têm documentos carregados.
+    </div>
+  </div>
+
+  <!-- 5. SICONFI -->
+  <div class="secao" id="siconfi">
+    <div class="secao-titulo"><span class="num">5</span> Fonte de Dados SICONFI</div>
+
+    <p>Esta aba consulta diretamente as planilhas do SICONFI (Sistema de Informações Contábeis do Tesouro Nacional) sincronizadas da pasta compartilhada do Google Drive. Os arquivos são atualizados automaticamente sempre que novas planilhas forem adicionadas à pasta.</p>
+
+    <h3 id="siconfi-filtros">Filtros disponíveis</h3>
+
+    <div class="passos">
+      <div class="passo">
+        <div class="passo-num">1</div>
+        <div class="passo-texto">
+          <strong>Selecionar planilha</strong>
+          Escolha o ano da planilha SICONFI. Quando houver 2024 e 2025 disponíveis, por exemplo, ambas aparecerão na lista.
+        </div>
+      </div>
+      <div class="passo">
+        <div class="passo-num">2</div>
+        <div class="passo-texto">
+          <strong>Regional(is)</strong>
+          Filtre pelos 26 municípios de uma ou mais das 7 regionais do Planeja+. Deixe "Todas as Regionais" para abranger todos.
+        </div>
+      </div>
+      <div class="passo">
+        <div class="passo-num">3</div>
+        <div class="passo-texto">
+          <strong>Município(s)</strong>
+          Após escolher a regional, refine para um ou mais municípios específicos, se necessário.
+        </div>
+      </div>
+      <div class="passo">
+        <div class="passo-num">4</div>
+        <div class="passo-texto">
+          <strong>Filtrar por tipo de receita ou código</strong>
+          Digite o código ou descrição da receita que deseja buscar. Exemplos: <code>royalt</code>, <code>1.7</code>, <code>participação especial</code>, <code>CFEM</code>.
+        </div>
+      </div>
+      <div class="passo">
+        <div class="passo-num">5</div>
+        <div class="passo-texto">
+          <strong>Clique em "Buscar na planilha SICONFI"</strong>
+          O resultado aparece abaixo das abas com os registros encontrados.
+        </div>
+      </div>
+    </div>
+
+    <h3 id="ajuste">Ajuste de colunas</h3>
+
+    <p>O expander <span class="campo">Ajuste de colunas</span> mostra como o sistema mapeou as colunas da planilha. Normalmente a detecção automática está correta e não precisa de ajuste. Para o SICONFI padrão do Tesouro Nacional, as colunas são:</p>
+
+    <table>
+      <tr><th>Campo no sistema</th><th>Coluna na planilha SICONFI</th></tr>
+      <tr><td>Coluna de Município</td><td><strong>Instituição</strong> (contém "Prefeitura Municipal de...")</td></tr>
+      <tr><td>Coluna de UF</td><td><strong>UF</strong></td></tr>
+      <tr><td>Coluna de Receita/Código</td><td><strong>Conta</strong> (contém os códigos como 1.7.2.2.52.0.0)</td></tr>
+      <tr><td>Coluna de Valor</td><td><strong>Valor</strong></td></tr>
+    </table>
+
+    <div class="atencao">
+      <strong>Se o dropdown mostrar valores numéricos em vez de nomes de colunas:</strong> isso indica que o arquivo tem um marcador de codificação (BOM) que impede a leitura correta do cabeçalho. Nesse caso, selecione manualmente: Município = primeiro item da lista, Receita/Código = o item que contém números com pontos como "1.0.0.0.00.0.0", Valor = o último item com número decimal grande.
+    </div>
+  </div>
+
+  <!-- 6. RESULTADOS -->
+  <div class="secao" id="resultados">
+    <div class="secao-titulo"><span class="num">6</span> Usando os Resultados</div>
+
+    <p>Após qualquer busca, os resultados aparecem na parte inferior da página com três componentes:</p>
+
+    <ul style="margin: 10px 0 10px 20px;">
+      <li><strong>Mensagem de status:</strong> quantos registros foram encontrados, em quantos arquivos e municípios</li>
+      <li><strong>Métricas rápidas:</strong> total de registros, municípios e fontes consultadas</li>
+      <li><strong>Tabela interativa:</strong> todos os dados encontrados com colunas de origem</li>
+    </ul>
+
+    <h3 id="copiar">Copiar para planilha (função principal)</h3>
+
+    <p>A forma mais rápida de usar os dados é copiá-los diretamente para sua planilha de trabalho:</p>
+
+    <div class="passos">
+      <div class="passo">
+        <div class="passo-num">1</div>
+        <div class="passo-texto">
+          <strong>Abra a caixa "Copiar dados para sua planilha"</strong>
+          Ela aparece logo abaixo das métricas, geralmente já expandida.
+        </div>
+      </div>
+      <div class="passo">
+        <div class="passo-num">2</div>
+        <div class="passo-texto">
+          <strong>Clique dentro da área de texto</strong>
+          A caixa contém os dados em formato TSV (separado por tabulações).
+        </div>
+      </div>
+      <div class="passo">
+        <div class="passo-num">3</div>
+        <div class="passo-texto">
+          <strong>Selecione tudo: Ctrl + A</strong>
+          Todo o conteúdo ficará marcado.
+        </div>
+      </div>
+      <div class="passo">
+        <div class="passo-num">4</div>
+        <div class="passo-texto">
+          <strong>Copie: Ctrl + C</strong>
+        </div>
+      </div>
+      <div class="passo">
+        <div class="passo-num">5</div>
+        <div class="passo-texto">
+          <strong>Abra sua planilha e cole: Ctrl + V</strong>
+          No Excel ou Google Sheets, cada valor irá automaticamente para a célula correta, nas colunas certas.
+        </div>
+      </div>
+    </div>
+
+    <div class="dica">
+      <strong>As colunas de origem (prefixo "_") não são incluídas na cópia</strong>, apenas os dados. Se precisar da rastreabilidade completa (de qual arquivo cada linha veio), use o download em CSV.
+    </div>
+
+    <h3 id="exportar">Exportar em outros formatos</h3>
+
+    <p>Clique em <span class="campo">Baixar arquivo completo</span> para ver as opções de download:</p>
+
+    <table>
+      <tr><th>Formato</th><th>Melhor para</th></tr>
+      <tr><td>📥 <strong>CSV</strong></td><td>Grandes volumes de dados, importar em outros sistemas, máxima compatibilidade</td></tr>
+      <tr><td>📊 <strong>Excel</strong></td><td>Apresentação com formatação, cores por origem, células organizadas</td></tr>
+      <tr><td>📄 <strong>PDF</strong></td><td>Registros formais, envio institucional, relatórios com cabeçalho Raízes/Planeja+</td></tr>
+      <tr><td>📝 <strong>Word</strong></td><td>Incorporar a tabela em documentos em elaboração, edição posterior</td></tr>
+    </table>
+
+    <div class="atencao">
+      <strong>Limite de linhas:</strong> o PDF exporta no máximo 2.000 linhas e o Word 1.000 linhas. Para conjuntos maiores, use CSV ou Excel que não têm limite.
+    </div>
+  </div>
+
+  <!-- 7. EXEMPLOS PRÁTICOS -->
+  <div class="secao" id="exemplos">
+    <div class="secao-titulo"><span class="num">7</span> Exemplos práticos de busca</div>
+
+    <h3>Exemplo 1 — Royalties e rendas petrolíferas via SICONFI</h3>
+    <div class="passos">
+      <div class="passo"><div class="passo-num">1</div><div class="passo-texto">Vá para a aba <span class="campo">Fonte de Dados SICONFI</span></div></div>
+      <div class="passo"><div class="passo-num">2</div><div class="passo-texto">Selecione a planilha desejada (ex: <strong>dados 2024</strong>)</div></div>
+      <div class="passo"><div class="passo-num">3</div><div class="passo-texto">Em Regional(is), selecione <strong>Regional V — Grande Niterói</strong></div></div>
+      <div class="passo"><div class="passo-num">4</div><div class="passo-texto">No filtro de receita, digite <code>1.7</code></div></div>
+      <div class="passo"><div class="passo-num">5</div><div class="passo-texto">Clique em <span class="btn">Buscar na planilha SICONFI</span></div></div>
+    </div>
+    <p>O resultado trará todos os registros de royalties e compensações financeiras dos municípios Maricá, Niterói e Guapimirim.</p>
+
+    <hr>
+
+    <h3>Exemplo 2 — Cruzar LOAs de múltiplos municípios</h3>
+    <div class="passos">
+      <div class="passo"><div class="passo-num">1</div><div class="passo-texto">No painel lateral, carregue a LOA de Guapimirim (município: Guapimirim, tipo: LOA, ano: 2026)</div></div>
+      <div class="passo"><div class="passo-num">2</div><div class="passo-texto">Carregue também a LOA de Maricá e de Niterói da mesma forma</div></div>
+      <div class="passo"><div class="passo-num">3</div><div class="passo-texto">Vá para a aba <span class="campo">Busca de Dados em Documentos enviados</span></div></div>
+      <div class="passo"><div class="passo-num">4</div><div class="passo-texto">No campo de código, digite <code>royalt</code> ou <code>1.7</code></div></div>
+      <div class="passo"><div class="passo-num">5</div><div class="passo-texto">Deixe o município como <strong>Todos os municípios</strong> e o modo como <strong>Parcial</strong></div></div>
+      <div class="passo"><div class="passo-num">6</div><div class="passo-texto">Clique em <span class="btn">Buscar agora</span></div></div>
+    </div>
+    <p>O resultado consolida todos os registros encontrados nos três arquivos, com a coluna <code>_fonte_arquivo</code> indicando de qual LOA cada linha veio.</p>
+
+    <hr>
+
+    <h3>Exemplo 3 — Documento sem código numérico</h3>
+    <p>Se um município disponibiliza a LOA somente com descrições como "RECEITAS DE ROYALTIES DE PETRÓLEO" sem código numérico:</p>
+    <div class="passos">
+      <div class="passo"><div class="passo-num">1</div><div class="passo-texto">Carregue o documento normalmente na biblioteca</div></div>
+      <div class="passo"><div class="passo-num">2</div><div class="passo-texto">No campo de busca, digite <code>royalt</code> (texto parcial, sem acento)</div></div>
+      <div class="passo"><div class="passo-num">3</div><div class="passo-texto">Use o modo <strong>Parcial</strong> ou <strong>Aproximado</strong></div></div>
+    </div>
+    <p>O sistema buscará o termo em todas as colunas de texto do documento e encontrará o registro mesmo sem código numérico.</p>
+  </div>
+
+  <!-- 8. PROBLEMAS COMUNS -->
+  <div class="secao" id="problemas">
+    <div class="secao-titulo"><span class="num">8</span> Problemas comuns e soluções</div>
+
+    <table>
+      <tr><th>Problema</th><th>Possível causa</th><th>Solução</th></tr>
+      <tr>
+        <td>"Nenhum registro encontrado"</td>
+        <td>Código ou termo não está no documento</td>
+        <td>Tente um termo mais amplo (<code>royalt</code> em vez de <code>royalties</code>), o modo Aproximado, ou verifique se o documento foi carregado corretamente</td>
+      </tr>
+      <tr>
+        <td>PDF carregou 0 registros sem OCR</td>
+        <td>PDF é escaneado (não tem texto selecionável)</td>
+        <td>Remova o documento, carregue novamente com a opção "Usar OCR" marcada</td>
+      </tr>
+      <tr>
+        <td>OCR retornou poucos registros</td>
+        <td>Qualidade baixa do documento</td>
+        <td>Use uma cópia com maior resolução, se disponível. Documentos fotografados de lado ou com baixa iluminação reduzem a precisão do OCR</td>
+      </tr>
+      <tr>
+        <td>Dropdown do SICONFI mostra números em vez de nomes de colunas</td>
+        <td>Arquivo CSV com BOM (marcador de codificação)</td>
+        <td>Selecione manualmente: Município = 1º item, Receita/Código = item com formato "1.0.0.0.00.0.0", Valor = último item numérico</td>
+      </tr>
+      <tr>
+        <td>Erro ao exportar PDF</td>
+        <td>Caractere especial no texto (traço longo, aspas tipográficas)</td>
+        <td>Use CSV ou Excel, que não têm essa limitação. O PDF está sendo corrigido em versões futuras</td>
+      </tr>
+      <tr>
+        <td>App travou ao usar OCR em PDF grande</td>
+        <td>Arquivo com muitas páginas consumiu muita memória</td>
+        <td>Divida o PDF em partes menores (até 30 páginas) ou converta para Excel antes de carregar</td>
+      </tr>
+      <tr>
+        <td>Dados somem ao recarregar a página</td>
+        <td>Comportamento normal — sessão temporária</td>
+        <td>Sempre exporte ou copie os resultados antes de fechar. Os documentos precisam ser carregados novamente a cada sessão</td>
+      </tr>
+    </table>
+  </div>
+
+  <hr>
+
+  <div class="dica">
+    <strong>Dúvidas ou sugestões?</strong> Entre em contato com o responsável pelo sistema:<br><br>
+    <strong>Augusto Queiroz</strong> — Pesquisador Cientista de Dados<br>
+    <a href="mailto:carlosaugustoq.planejamais@associacaoraizes.org.br" style="color: #1f4e2f;">carlosaugustoq.planejamais@associacaoraizes.org.br</a>
+  </div>
+
+  <div class="rodape">
+    DataMiner Planeja+ &nbsp;·&nbsp; Manual Prático v1.0<br>
+    Associação Raízes | Programa Planeja+ | PGP — Projeto de Gestão e Pesquisa
+  </div>
+
+</div>
+</body>
+</html>
