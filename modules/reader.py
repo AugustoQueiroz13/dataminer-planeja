@@ -8,6 +8,10 @@
 # CORREÇÃO [2025]: read_pdf_tables reescrita para processar o PDF página a
 # página com gc.collect() entre páginas, evitando crash de memória em arquivos
 # grandes (26MB+) no Streamlit Cloud free tier (~1 GB RAM).
+# CORREÇÃO [2026-09-28]: deduplicação de nomes de coluna — PDFs de LOA/LDO
+# frequentemente têm duas colunas "Valor" (dotação inicial e atualizada) ou
+# headers repetidos que causavam "Reindexing only valid with uniquely valued
+# Index objects". Limite max_paginas elevado de 150 para 1000.
 # ==============================================================================
 
 import gc
@@ -106,7 +110,7 @@ def read_xlsx(arquivo) -> pd.DataFrame:
 
 # ==================== PDF via pdfplumber =====================================
 
-def read_pdf_tables(arquivo, max_paginas: int = 150) -> list:
+def read_pdf_tables(arquivo, max_paginas: int = 1000) -> list:
     """
     Extrai todas as tabelas de um PDF processando UMA PÁGINA POR VEZ.
 
@@ -121,7 +125,7 @@ def read_pdf_tables(arquivo, max_paginas: int = 150) -> list:
     Parâmetros:
         arquivo     - caminho de arquivo ou objeto file-like (upload Streamlit)
         max_paginas - limite de páginas a processar (segurança contra PDFs
-                      muito grandes; padrão 150 páginas)
+                      muito grandes; padrão 1000 páginas)
 
     Retorna lista de DataFrames, um por tabela encontrada.
     Tabelas sem cabeçalho usam índices numéricos como nome de coluna.
@@ -158,7 +162,22 @@ def read_pdf_tables(arquivo, max_paginas: int = 150) -> list:
                         for i, c in enumerate(cabecalho)
                     ]
 
-                    df = pd.DataFrame(linhas, columns=cabecalho_limpo)
+                    # Deduplica nomes de coluna: PDFs de LOA/LDO frequentemente
+                    # têm duas colunas com o mesmo nome ("Valor", "Dotação"…).
+                    # pandas lança "Reindexing only valid with uniquely valued
+                    # Index objects" ao fazer concat com colunas duplicadas.
+                    # Solução: sufixar duplicatas com _2, _3, …
+                    vistos: dict = {}
+                    cabecalho_final = []
+                    for nome in cabecalho_limpo:
+                        if nome in vistos:
+                            vistos[nome] += 1
+                            cabecalho_final.append(f"{nome}_{vistos[nome]}")
+                        else:
+                            vistos[nome] = 1
+                            cabecalho_final.append(nome)
+
+                    df = pd.DataFrame(linhas, columns=cabecalho_final)
                     df["_pagina_origem"] = numero_pagina + 1
                     tabelas.append(df)
 
