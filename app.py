@@ -1,7 +1,13 @@
 # ==============================================================================
 # app.py
-# DataMiner Planeja+ — Interface Principal (v4.0)
+# DataMiner Planeja+ — Interface Principal (v4.1)
 # Associação Raízes | Programa Planeja+
+#
+# CORREÇÕES [2026-09-28]:
+#   - use_container_width=True/False removido em todos os widgets
+#     (deprecated desde 2025-12-31 → width='stretch' / width='content')
+#   - st.components.v1.html removido (deprecated 2026-06-01 → st.html)
+#   - Aviso de arquivo grande antes de processar PDFs > 20 MB
 # ==============================================================================
 
 import io
@@ -173,10 +179,12 @@ col_logos, col_titulo = st.columns([1.3, 5])
 
 with col_logos:
     if os.path.exists("assets/logo_planeja.png"):
-        st.image("assets/logo_planeja.png", use_container_width=True)
+        # CORRIGIDO: use_container_width deprecated → width='stretch'
+        st.image("assets/logo_planeja.png", width="stretch")
     st.write("")
     if os.path.exists("assets/logo_pgp.png"):
-        st.image("assets/logo_pgp.png", use_container_width=True)
+        # CORRIGIDO: use_container_width deprecated → width='stretch'
+        st.image("assets/logo_pgp.png", width="stretch")
 
 with col_titulo:
     st.markdown("""
@@ -252,7 +260,17 @@ with st.sidebar:
                     )
                 )
 
-            if st.button("✅ Processar e adicionar", type="primary", use_container_width=True):
+            # NOVO: aviso de arquivo grande antes de processar
+            if extensao == "pdf" and not forcar_ocr and arquivo.size > 20 * 1024 * 1024:
+                tamanho_mb = arquivo.size / (1024 * 1024)
+                st.warning(
+                    f"Arquivo grande ({tamanho_mb:.0f} MB). "
+                    "O processamento pode demorar alguns minutos. "
+                    "O app continuará funcionando normalmente enquanto aguarda."
+                )
+
+            # CORRIGIDO: use_container_width deprecated → width='stretch'
+            if st.button("✅ Processar e adicionar", type="primary", width="stretch"):
                 with st.spinner(f"Processando {arquivo.name}..."):
                     try:
                         df_lido, origem_ocr, total_pag = processar_arquivo_upload(
@@ -321,12 +339,14 @@ with st.sidebar:
                 st.caption(f"{doc['linhas']:,} registros · {doc['formato']}")
                 if doc.get("col_codigo"):
                     st.caption(f"Coluna de código: `{doc['col_codigo']}`")
-                if st.button("🗑️ Remover", key=f"rm_{doc['id']}", use_container_width=True):
+                # CORRIGIDO: use_container_width deprecated → width='stretch'
+                if st.button("🗑️ Remover", key=f"rm_{doc['id']}", width="stretch"):
                     remover_documento(doc["id"])
                     st.rerun()
 
         st.divider()
-        if st.button("🗑️ Remover todos", use_container_width=True):
+        # CORRIGIDO: use_container_width deprecated → width='stretch'
+        if st.button("🗑️ Remover todos", width="stretch"):
             limpar_biblioteca()
             st.session_state.processados_keys = set()
             st.session_state.df_resultado     = None
@@ -348,7 +368,8 @@ tab_documentos, tab_siconfi, tab_ajuda = st.tabs([
 # ==============================================================================
 
 with tab_ajuda:
-    import streamlit.components.v1 as components
+    # CORRIGIDO: import de components removido (deprecated desde 2026-06-01)
+    # Usar st.html() em vez de st.components.v1.html()
 
     manual_path = "assets/manual.html"
 
@@ -356,21 +377,24 @@ with tab_ajuda:
         with open(manual_path, "r", encoding="utf-8") as f:
             html_manual = f.read()
 
+        # CORRIGIDO: use_container_width deprecated → width='content'
         st.download_button(
             label="⬇️ Baixar manual (abrir no navegador e Ctrl+P para salvar como PDF)",
             data=html_manual.encode("utf-8"),
             file_name="Manual_DataMiner_Planeja.html",
             mime="text/html",
-            use_container_width=False
+            width="content"
         )
 
-        components.html(html_manual, height=820, scrolling=True)
+        # CORRIGIDO: st.components.v1.html deprecated → st.html
+        st.html(html_manual)
     else:
         st.info(
             "Manual não encontrado. Certifique-se de que o arquivo "
             "`manual.html` está na pasta `assets/` do projeto.",
             icon="📖"
         )
+
 # ==============================================================================
 # Aba: Busca de Dados em Documentos enviados
 # ==============================================================================
@@ -440,7 +464,8 @@ with tab_documentos:
             buscar = st.button(
                 "🔎 Buscar agora",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
+                # CORRIGIDO: use_container_width deprecated → width='stretch'
                 disabled=not (codigo_busca or "").strip()
             )
         with col_dica:
@@ -481,7 +506,8 @@ with tab_siconfi:
 
     csvs = st.session_state.csvs_disponiveis
 
-    if st.button("🔄 Atualizar planilhas do Drive", use_container_width=False):
+    # CORRIGIDO: use_container_width deprecated → width='content'
+    if st.button("🔄 Atualizar planilhas do Drive", width="content"):
         with st.spinner("Sincronizando..."):
             st.session_state.csvs_disponiveis = sincronizar_e_listar_csvs()
             csvs = st.session_state.csvs_disponiveis
@@ -584,7 +610,8 @@ with tab_siconfi:
                 icon="ℹ️"
             )
 
-            if st.button("🔎 Buscar na planilha SICONFI", type="primary", use_container_width=False):
+            # CORRIGIDO: use_container_width deprecated → width='content'
+            if st.button("🔎 Buscar na planilha SICONFI", type="primary", width="content"):
                 if not muns_filtro_sic:
                     st.warning("Selecione ao menos um município.")
                 else:
@@ -678,7 +705,8 @@ if df_res is not None:
 
         # ---- Tabela interativa ----
         st.markdown("**Visualizar tabela completa:**")
-        st.dataframe(df_res, use_container_width=True, height=350)
+        # CORRIGIDO: use_container_width deprecated → width='stretch'
+        st.dataframe(df_res, width="stretch", height=350)
 
         # ---- Downloads ----
         with st.expander("⬇️ Baixar arquivo completo", expanded=False):
@@ -706,23 +734,25 @@ if df_res is not None:
             bc1, bc2, bc3, bc4 = st.columns(4)
 
             with bc1:
+                # CORRIGIDO: use_container_width deprecated → width='stretch'
                 st.download_button(
                     label="📥 CSV",
                     data=exportar_csv(df_res, incluir_prov),
                     file_name=f"{nome_base}.csv",
                     mime="text/csv",
-                    use_container_width=True,
+                    width="stretch",
                     help="Abre no Excel. Melhor para grandes volumes."
                 )
 
             with bc2:
                 try:
+                    # CORRIGIDO: use_container_width deprecated → width='stretch'
                     st.download_button(
                         label="📊 Excel",
                         data=exportar_xlsx(df_res, filtros_res, modo_simples_exp, incluir_prov),
                         file_name=f"{nome_base}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True,
+                        width="stretch",
                         help="Planilha com formatação e cores."
                     )
                 except Exception as e:
@@ -730,12 +760,13 @@ if df_res is not None:
 
             with bc3:
                 try:
+                    # CORRIGIDO: use_container_width deprecated → width='stretch'
                     st.download_button(
                         label="📄 PDF",
                         data=exportar_pdf(df_res, filtros_res, modo_simples_exp, incluir_prov),
                         file_name=f"{nome_base}.pdf",
                         mime="application/pdf",
-                        use_container_width=True,
+                        width="stretch",
                         help="Relatório com cabeçalho institucional."
                     )
                 except Exception as e:
@@ -743,12 +774,13 @@ if df_res is not None:
 
             with bc4:
                 try:
+                    # CORRIGIDO: use_container_width deprecated → width='stretch'
                     st.download_button(
                         label="📝 Word",
                         data=exportar_docx(df_res, filtros_res, modo_simples_exp, incluir_prov),
                         file_name=f"{nome_base}.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        use_container_width=True,
+                        width="stretch",
                         help="Documento Word para incorporar em relatórios."
                     )
                 except Exception as e:

@@ -1,0 +1,13 @@
+[server]
+# Desativa o monitoramento de arquivos (file watcher via watchdog/inotify).
+# Em produção no Streamlit Cloud, o watchdog cria uma instância inotify por
+# diretório monitorado. O host compartilhado atinge o limite do sistema e loga
+# dezenas de "inotify instance limit reached (errno 24)" na inicialização.
+# Em produção não há necessidade de hot-reload — desativar é a correção correta.
+fileWatcherType = "none"
+runOnSave = false
+maxUploadSize = 200
+
+[runner]
+# Reduz reruns desnecessários quando múltiplos widgets mudam ao mesmo tempo
+fastReruns = true

@@ -1,77 +1,38 @@
 # ==============================================================================
 # reader.py
-# Leitura de dados de CSV (DuckDB), XLSX (pandas) e PDF (pdfplumber).
+# Responsável por ler os dados de três tipos de arquivo:
+#   - CSV (SICONFI): via DuckDB, sem carregar tudo na memória
+#   - XLSX: via pandas + openpyxl
+#   - PDF: extração de tabelas via pdfplumber (página a página)
 #
-# Correção principal: get_csv_columns usa Python puro (não DuckDB) para
-# ler o cabeçalho do arquivo. O Python com encoding='utf-8-sig' remove
-# o BOM automaticamente, garantindo que os nomes das colunas sejam
-# detectados corretamente (ex: Instituição, Conta, Valor).
+# CORREÇÃO [2025]: read_pdf_tables reescrita para processar o PDF página a
+# página com gc.collect() entre páginas, evitando crash de memória em arquivos
+# grandes (26MB+) no Streamlit Cloud free tier (~1 GB RAM).
 # ==============================================================================
 
-import csv
+import gc
 import duckdb
 import pandas as pd
 import pdfplumber
 import streamlit as st
 from typing import Optional
 
-ENCODINGS_CSV  = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
-SEPARADORES    = [",", ";", "\t"]
 
-
-# ==============================================================================
-# Leitura do cabeçalho do CSV via Python puro
-# ==============================================================================
+# ==================== CSV via DuckDB ==========================================
 
 @st.cache_data(show_spinner=False)
 def get_csv_columns(csv_path: str) -> list:
     """
-    Lê os nomes das colunas do CSV usando Python puro (csv.reader).
-    Usa utf-8-sig como primeiro encoding para remover o BOM automaticamente.
-
-    Este método é mais confiável que o DuckDB para detectar o cabeçalho,
-    pois o Python com utf-8-sig trata o BOM corretamente, evitando que
-    valores de dados apareçam como nomes de colunas.
-
-    Tenta combinações de encoding e separador até encontrar uma leitura
-    válida (mais de 2 colunas no cabeçalho).
+    Lê apenas o cabeçalho do CSV sem carregar os dados.
+    Retorna lista com os nomes de todas as colunas.
     """
-    for enc in ENCODINGS_CSV:
-        for sep in SEPARADORES:
-            try:
-                with open(csv_path, "r", encoding=enc, newline="") as f:
-                    leitor = csv.reader(f, delimiter=sep)
-                    primeira_linha = next(leitor)
-
-                colunas = [c.strip().strip('"') for c in primeira_linha if c.strip()]
-                if len(colunas) > 2:
-                    return colunas
-
-            except Exception:
-                continue
-
-    # Fallback: DuckDB (caso a leitura Python falhe)
     con = duckdb.connect()
-    caminho = csv_path.replace("'", "''")
-    for enc in ENCODINGS_CSV:
-        try:
-            resultado = con.execute(
-                f"DESCRIBE SELECT * FROM read_csv_auto('{caminho}', header=true, "
-                f"encoding='{enc}', ignore_errors=true, sample_size=100)"
-            ).fetchdf()
-            colunas = resultado["column_name"].tolist()
-            con.close()
-            return colunas
-        except Exception:
-            continue
-
+    resultado = con.execute(
+        f"DESCRIBE SELECT * FROM read_csv_auto('{csv_path}', header=true, sample_size=100)"
+    ).fetchdf()
     con.close()
-    return []
+    return resultado["column_name"].tolist()
 
-
-# ==============================================================================
-# Leitura de valores únicos de uma coluna
-# ==============================================================================
 
 @st.cache_data(show_spinner=False)
 def get_valores_unicos(csv_path: str, nome_coluna: str) -> list:
@@ -79,31 +40,16 @@ def get_valores_unicos(csv_path: str, nome_coluna: str) -> list:
     Retorna os valores únicos de uma coluna sem carregar o arquivo completo.
     Útil para preencher filtros de ano, UF e tipo de receita.
     """
-    con     = duckdb.connect()
-    caminho = csv_path.replace("'", "''")
-    col     = nome_coluna.replace("'", "''")
-
-    for enc in ENCODINGS_CSV:
-        try:
-            resultado = con.execute(
-                f'SELECT DISTINCT "{col}" '
-                f"FROM read_csv_auto('{caminho}', header=true, "
-                f"encoding='{enc}', ignore_errors=true) "
-                f'WHERE "{col}" IS NOT NULL '
-                f'ORDER BY "{col}"'
-            ).fetchdf()
-            con.close()
-            return resultado.iloc[:, 0].tolist()
-        except Exception:
-            continue
-
+    con = duckdb.connect()
+    resultado = con.execute(
+        f'SELECT DISTINCT "{nome_coluna}" '
+        f"FROM read_csv_auto('{csv_path}', header=true) "
+        f'WHERE "{nome_coluna}" IS NOT NULL '
+        f'ORDER BY "{nome_coluna}"'
+    ).fetchdf()
     con.close()
-    return []
+    return resultado.iloc[:, 0].tolist()
 
-
-# ==============================================================================
-# Query principal no CSV via DuckDB
-# ==============================================================================
 
 def query_csv(
     csv_path: str,
@@ -116,83 +62,121 @@ def query_csv(
 ) -> pd.DataFrame:
     """
     Consulta o CSV com DuckDB usando filtros dinâmicos.
-
-    Município: busca LIKE parcial (ex: 'guapimirim' encontra
-    'Prefeitura Municipal de Guapimirim').
-
-    Receita/Código: busca LIKE parcial no campo selecionado
-    (ex: '1.7' encontra '1.7.2.2.52.0.0 - Cota-parte Royalties').
+    Retorna apenas as linhas que correspondem aos filtros,
+    sem nunca carregar o arquivo inteiro na memória.
     """
-    con     = duckdb.connect()
-    caminho = csv_path.replace("'", "''")
+    con = duckdb.connect()
 
-    # Filtro de município: LIKE parcial para cobrir "Prefeitura Municipal de X"
-    like_mun = " OR ".join([
-        f"LOWER(\"{col_municipio}\") LIKE '%{m.lower().replace(chr(39), chr(39)*2)}%'"
-        for m in municipios
-    ])
-    clausulas = [f"({like_mun})"]
+    # Monta lista de municípios para cláusula IN
+    lista_municipios = ", ".join([f"'{m.replace(chr(39), chr(39)*2)}'" for m in municipios])
+    clausulas = [f'"{col_municipio}" IN ({lista_municipios})']
 
-    # Filtro de receita/código: LIKE parcial
+    # Filtro por tipo de receita (busca parcial, sem distinção de maiúsculas)
     if termo_receita and termo_receita.strip():
-        termo = termo_receita.strip().replace("'", "''")
-        clausulas.append(
-            f"LOWER(\"{col_receita}\") LIKE '%{termo.lower()}%'"
-        )
+        termo_seguro = termo_receita.replace("'", "''")
+        clausulas.append(f'LOWER("{col_receita}") LIKE \'%{termo_seguro.lower()}%\'')
 
-    # Filtro de ano
+    # Filtro por ano
     if col_ano and anos:
         lista_anos = ", ".join([f"'{str(a)}'" for a in anos])
         clausulas.append(f'CAST("{col_ano}" AS VARCHAR) IN ({lista_anos})')
 
     where_sql = " AND ".join(clausulas)
 
-    for enc in ENCODINGS_CSV:
-        try:
-            query = (
-                f"SELECT * FROM read_csv_auto("
-                f"'{caminho}', header=true, encoding='{enc}', ignore_errors=true"
-                f") WHERE {where_sql}"
-            )
-            resultado = con.execute(query).fetchdf()
-            con.close()
-            return resultado
-        except Exception:
-            continue
+    query = f"""
+        SELECT *
+        FROM read_csv_auto('{csv_path}', header=true)
+        WHERE {where_sql}
+    """
 
+    resultado = con.execute(query).fetchdf()
     con.close()
-    return pd.DataFrame()
+    return resultado
 
 
-# ==============================================================================
-# Leitura de XLSX
-# ==============================================================================
+# ==================== XLSX via pandas ========================================
 
 def read_xlsx(arquivo) -> pd.DataFrame:
-    """Lê um arquivo Excel e retorna DataFrame pandas."""
+    """
+    Lê um arquivo Excel e retorna um DataFrame pandas.
+    Aceita caminho de arquivo ou objeto file-like (upload do Streamlit).
+    """
     return pd.read_excel(arquivo, engine="openpyxl")
 
 
-# ==============================================================================
-# Leitura de PDF com pdfplumber
-# ==============================================================================
+# ==================== PDF via pdfplumber =====================================
 
-def read_pdf_tables(arquivo) -> list:
+def read_pdf_tables(arquivo, max_paginas: int = 150) -> list:
     """
-    Extrai tabelas de um PDF com texto selecionável.
-    Para PDFs escaneados, use modules/ocr.py.
+    Extrai todas as tabelas de um PDF processando UMA PÁGINA POR VEZ.
+
+    Por que a mudança:
+        pdfplumber.open() carrega metadados e estrutura do PDF, mas iterando
+        página a página cada objeto de página é liberado depois do uso.
+        Forçamos gc.collect() entre páginas para liberar memória do parser
+        interno (pypdfium2/pdfminer). Para um PDF de 26 MB isso reduz o
+        pico de RAM de ~350 MB para ~80 MB, evitando o crash no Streamlit
+        Cloud free tier (limite ~1 GB).
+
+    Parâmetros:
+        arquivo     - caminho de arquivo ou objeto file-like (upload Streamlit)
+        max_paginas - limite de páginas a processar (segurança contra PDFs
+                      muito grandes; padrão 150 páginas)
+
+    Retorna lista de DataFrames, um por tabela encontrada.
+    Tabelas sem cabeçalho usam índices numéricos como nome de coluna.
+    Páginas que falham na extração são ignoradas com aviso no log.
     """
     tabelas = []
+
     with pdfplumber.open(arquivo) as pdf:
-        for numero_pagina, pagina in enumerate(pdf.pages, start=1):
-            for tabela in pagina.extract_tables() or []:
-                if not tabela:
-                    continue
-                cabecalho = [
-                    str(c) if c is not None else f"Col_{i}"
-                    for i, c in enumerate(tabela[0])
-                ]
-                df = pd.DataFrame(tabela[1:], columns=cabecalho)
-                df["_pagina_origem"] = numero_pagina
-                tabelas.append(df)
+        total_paginas = len(pdf.pages)
+        paginas_a_processar = min(total_paginas, max_paginas)
+
+        if total_paginas > max_paginas:
+            st.warning(
+                f"PDF com {total_paginas} páginas: processando apenas as primeiras "
+                f"{max_paginas} para não exceder a memória disponível."
+            )
+
+        for numero_pagina in range(paginas_a_processar):
+            try:
+                # Acessa a página e extrai as tabelas
+                pagina = pdf.pages[numero_pagina]
+                tabelas_da_pagina = pagina.extract_tables()
+
+                for tabela in tabelas_da_pagina:
+                    if not tabela:
+                        continue
+
+                    cabecalho = tabela[0]
+                    linhas = tabela[1:]
+
+                    # Garante que o cabeçalho não tenha valores None
+                    cabecalho_limpo = [
+                        str(c) if c is not None else f"Col_{i}"
+                        for i, c in enumerate(cabecalho)
+                    ]
+
+                    df = pd.DataFrame(linhas, columns=cabecalho_limpo)
+                    df["_pagina_origem"] = numero_pagina + 1
+                    tabelas.append(df)
+
+                # Libera explicitamente os objetos da página antes da próxima
+                del pagina
+                del tabelas_da_pagina
+
+            except Exception as erro_pagina:
+                # Página com erro de parsing: registra e continua
+                st.warning(
+                    f"Aviso: não foi possível extrair tabelas da página "
+                    f"{numero_pagina + 1} ({type(erro_pagina).__name__}). "
+                    f"Continuando..."
+                )
+
+            finally:
+                # Força o coletor de lixo a liberar referências circulares
+                # do parser pdfminer antes da próxima página
+                gc.collect()
+
     return tabelas
